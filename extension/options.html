@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Terminal in Chrome – Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main>
+    <h1>Terminal in Chrome</h1>
+
+    <section>
+      <h2>Native host</h2>
+      <p class="muted">The extension talks to a small Python program on your Mac that runs the shell.
+        Install it once with <code>./install.sh</code> from the project folder.</p>
+      <div class="row">
+        <button id="test-host" type="button">Test connection</button>
+        <span id="host-status" class="muted"></span>
+      </div>
+      <p class="muted">Extension ID: <code id="ext-id"></code></p>
+    </section>
+
+    <form id="form">
+      <section>
+        <h2>Shell</h2>
+        <label>Shell program
+          <input name="shell" type="text" placeholder="Login shell (default)" spellcheck="false">
+          <small>Absolute path such as <code>/bin/zsh</code>, <code>/opt/homebrew/bin/fish</code>. Leave empty for your login shell.</small>
+        </label>
+        <label>Start directory
+          <input name="cwd" type="text" placeholder="~ (home)" spellcheck="false">
+        </label>
+      </section>
+
+      <section>
+        <h2>Appearance</h2>
+        <label>Theme
+          <select name="theme">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="system">Follow system</option>
+          </select>
+        </label>
+        <label>Font size
+          <input name="fontSize" type="number" min="8" max="40" step="1">
+        </label>
+        <label>Font family
+          <input name="fontFamily" type="text" spellcheck="false">
+        </label>
+        <label>Cursor style
+          <select name="cursorStyle">
+            <option value="block">Block</option>
+            <option value="underline">Underline</option>
+            <option value="bar">Bar</option>
+          </select>
+        </label>
+        <label class="check"><input name="cursorBlink" type="checkbox"> Blinking cursor</label>
+        <label>Scrollback lines
+          <input name="scrollback" type="number" min="0" max="200000" step="100">
+        </label>
+      </section>
+
+      <section>
+        <h2>Behaviour</h2>
+        <label class="check"><input name="macOptionIsMeta" type="checkbox"> Use Option (⌥) as Meta key</label>
+        <label class="check"><input name="copyOnSelect" type="checkbox"> Copy to clipboard when text is selected</label>
+        <label>Toolbar button opens
+          <select name="actionOpens">
+            <option value="tab">A new tab</option>
+            <option value="panel">The side panel</option>
+          </select>
+        </label>
+      </section>
+
+      <section>
+        <h2>Keyboard shortcuts</h2>
+        <table class="keys">
+          <tr><td>Ctrl+Shift+T</td><td>New terminal tab</td></tr>
+          <tr><td>Ctrl+Shift+W</td><td>Close terminal tab</td></tr>
+          <tr><td>Ctrl+Shift+[ / ]</td><td>Previous / next terminal tab</td></tr>
+          <tr><td>⌘C / ⌘V</td><td>Copy selection / paste</td></tr>
+          <tr><td>⌘K</td><td>Clear screen</td></tr>
+          <tr><td>⌘+ / ⌘- / ⌘0</td><td>Font size bigger / smaller / reset</td></tr>
+          <tr><td>⌘-click a link</td><td>Open it in a new browser tab</td></tr>
+        </table>
+        <p class="muted">Global shortcuts (open a terminal from any page) are configured at
+          <code>chrome://extensions/shortcuts</code>.</p>
+      </section>
+
+      <div class="row">
+        <button type="submit">Save</button>
+        <button type="button" id="reset">Reset to defaults</button>
+        <span id="save-status" class="muted"></span>
+      </div>
+    </form>
+  </main>
+  <script src="shared.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

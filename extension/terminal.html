@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Terminal</title>
+  <link rel="stylesheet" href="vendor/xterm.css">
+  <link rel="stylesheet" href="terminal.css">
+</head>
+<body>
+  <header id="tabbar">
+    <div id="tabs" role="tablist"></div>
+    <div id="tabbar-actions">
+      <button id="new-tab" title="New terminal (Ctrl+Shift+T)">+</button>
+      <button id="open-options" title="Settings">&#9881;</button>
+    </div>
+  </header>
+  <main id="panes"></main>
+
+  <template id="pane-template">
+    <section class="pane" role="tabpanel">
+      <div class="term"></div>
+      <div class="overlay hidden">
+        <div class="overlay-card">
+          <h2 class="overlay-title"></h2>
+          <p class="overlay-detail"></p>
+          <pre class="overlay-code hidden"></pre>
+          <div class="overlay-actions">
+            <button class="overlay-retry">Reconnect</button>
+            <button class="overlay-close">Close tab</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </template>
+
+  <script src="vendor/xterm.js"></script>
+  <script src="vendor/addon-fit.js"></script>
+  <script src="vendor/addon-web-links.js"></script>
+  <script src="shared.js"></script>
+  <script src="terminal.js"></script>
+</body>
+</html>
