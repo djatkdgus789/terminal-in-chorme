@@ -146,9 +146,50 @@ body {
 .term .xterm { height: 100%; }
 .term .xterm-viewport { overscroll-behavior: contain; }
 
+.findbar {
+  position: absolute;
+  top: 6px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: var(--bg-tabbar);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 10; /* above xterm's canvas layers */
+}
+.findbar.hidden { display: none; }
+.findbar input {
+  width: 180px;
+  padding: 4px 6px;
+  font: 12px Menlo, Monaco, monospace;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  outline: none;
+}
+.findbar input:focus { border-color: var(--accent); }
+.find-count { min-width: 34px; text-align: center; font-size: 11px; color: var(--fg-dim); }
+.findbar button {
+  border: 0;
+  background: transparent;
+  color: var(--fg-dim);
+  font-size: 11px;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.findbar button:hover { color: var(--fg); background: rgba(127, 127, 127, 0.2); }
+.findbar .find-close { font-size: 15px; }
+
 .overlay {
   position: absolute;
   inset: 0;
+  z-index: 20; /* above xterm's canvas layers */
   display: flex;
   align-items: center;
   justify-content: center;

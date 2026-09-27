@@ -15,6 +15,7 @@ const DEFAULT_SETTINGS = {
   macOptionIsMeta: true,
   copyOnSelect: false,
   actionOpens: "tab",   // tab | panel
+  persistSessions: true, // keep shells alive when the page closes; re-attach on reopen
 };
 
 function loadSettings() {
@@ -76,5 +77,9 @@ function explainNativeError(message) {
         "(run `xcode-select --install` if needed) and that host/terminal_host.py is executable.",
     };
   }
-  return { title: "Connection lost", detail: message || "The native host disconnected." };
+  return {
+    title: "Connection lost",
+    detail: (message || "The native host disconnected.") +
+      " If this keeps happening, check $TMPDIR/terminal-in-chrome-<uid>/daemon.log on your Mac.",
+  };
 }

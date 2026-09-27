@@ -20,6 +20,13 @@
   <template id="pane-template">
     <section class="pane" role="tabpanel">
       <div class="term"></div>
+      <div class="findbar hidden">
+        <input class="find-input" type="text" placeholder="Find" spellcheck="false">
+        <span class="find-count"></span>
+        <button class="find-prev" title="Previous (Shift+Enter)">&#9650;</button>
+        <button class="find-next" title="Next (Enter)">&#9660;</button>
+        <button class="find-close" title="Close (Esc)">&times;</button>
+      </div>
       <div class="overlay hidden">
         <div class="overlay-card">
           <h2 class="overlay-title"></h2>
@@ -37,6 +44,8 @@
   <script src="vendor/xterm.js"></script>
   <script src="vendor/addon-fit.js"></script>
   <script src="vendor/addon-web-links.js"></script>
+  <script src="vendor/addon-search.js"></script>
+  <script src="vendor/addon-webgl.js"></script>
   <script src="shared.js"></script>
   <script src="terminal.js"></script>
 </body>

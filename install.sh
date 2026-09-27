@@ -5,6 +5,7 @@
 #   ./install.sh                       # register for every installed browser
 #   ./install.sh --browser chrome      # only Google Chrome
 #   ./install.sh --extension-id <id>   # allow an additional extension ID
+#   sudo ./install.sh --system         # register for all users (/Library/...)
 #
 # Re-run it any time; it overwrites the previous registration.
 set -euo pipefail
@@ -17,11 +18,13 @@ LAUNCHER="$SCRIPT_DIR/host/run_host.sh"
 
 EXTENSION_IDS=("$DEFAULT_EXTENSION_ID")
 BROWSER_FILTER=""
+SYSTEM_WIDE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --extension-id) EXTENSION_IDS+=("$2"); shift 2 ;;
     --browser) BROWSER_FILTER="$2"; shift 2 ;;
+    --system) SYSTEM_WIDE=1; shift ;;
     -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
@@ -78,7 +81,13 @@ MANIFEST_JSON=$(cat <<JSON
 JSON
 )
 
-APP_SUPPORT="$HOME/Library/Application Support"
+# Per-user location (default) or the system-wide one used by Google's own
+# native messaging sample (needs sudo, applies to every account on the Mac).
+if [[ $SYSTEM_WIDE -eq 1 ]]; then
+  APP_SUPPORT="/Library"
+else
+  APP_SUPPORT="$HOME/Library/Application Support"
+fi
 declare -a BROWSERS=(
   "chrome|Google/Chrome"
   "chrome-beta|Google/Chrome Beta"
@@ -89,6 +98,11 @@ declare -a BROWSERS=(
   "arc|Arc/User Data"
   "vivaldi|Vivaldi"
 )
+if [[ $SYSTEM_WIDE -eq 1 ]]; then
+  # System-wide directories are flat: /Library/Google/Chrome/NativeMessagingHosts
+  BROWSERS=("chrome|Google/Chrome" "chromium|Chromium" "brave|BraveSoftware/Brave-Browser"
+            "edge|Microsoft Edge" "vivaldi|Vivaldi" "chrome-beta|Google/Chrome Beta" "chrome-canary|Google/Chrome Canary")
+fi
 
 installed=0
 for entry in "${BROWSERS[@]}"; do
@@ -123,4 +137,7 @@ Done. Next steps:
   3. The extension ID should be $DEFAULT_EXTENSION_ID.
      If it differs, re-run: ./install.sh --extension-id <your id>
   4. Click the toolbar icon (or press Alt+Shift+T) to open a terminal.
+
+Shells run inside a per-user daemon (host/terminal_daemon.py) that starts on
+demand and exits when idle; its log is in \$TMPDIR/terminal-in-chrome-<uid>/daemon.log.
 MSG

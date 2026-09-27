@@ -7,7 +7,8 @@
 //   npm i -g playwright   (or: npm i playwright)
 //   node test/e2e_page_test.mjs
 import { createServer } from "node:http";
-import { readFile, mkdir } from "node:fs/promises";
+import { readFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +27,8 @@ const EXT = path.join(ROOT, "extension");
 const HOST = path.join(ROOT, "host", "terminal_host.py");
 const OUT = process.env.SCREENSHOT_DIR || path.join(ROOT, "test", "output");
 await mkdir(OUT, { recursive: true });
+const RUNTIME = await mkdtemp(path.join(os.tmpdir(), "tic-e2e-"));
+const HOST_ENV = { ...process.env, TIC_RUNTIME_DIR: RUNTIME };
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png" };
 
 const server = createServer(async (req, res) => {
@@ -44,7 +47,7 @@ const base = `http://127.0.0.1:${server.address().port}`;
 // ---- native host bridge -----------------------------------------------------
 const hosts = new Map();
 function startHost(portId, page) {
-  const proc = spawn("python3", [HOST], { stdio: ["pipe", "pipe", "inherit"] });
+  const proc = spawn("python3", [HOST], { stdio: ["pipe", "pipe", "inherit"], env: HOST_ENV });
   let buf = Buffer.alloc(0);
   proc.stdout.on("data", (chunk) => {
     buf = Buffer.concat([buf, chunk]);
@@ -62,6 +65,31 @@ function startHost(portId, page) {
   });
   hosts.set(portId, proc);
 }
+
+// Talk to the daemon through a throwaway host process (no browser involved).
+function hostRequest(messages, wantType) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("python3", [HOST], { stdio: ["pipe", "pipe", "inherit"], env: HOST_ENV });
+    let buf = Buffer.alloc(0);
+    const timer = setTimeout(() => { proc.kill(); reject(new Error("hostRequest timeout")); }, 5000);
+    proc.stdout.on("data", (chunk) => {
+      buf = Buffer.concat([buf, chunk]);
+      while (buf.length >= 4) {
+        const len = buf.readUInt32LE(0);
+        if (buf.length < 4 + len) break;
+        const msg = JSON.parse(buf.subarray(4, 4 + len).toString("utf8"));
+        buf = buf.subarray(4 + len);
+        if (msg.type === wantType) { clearTimeout(timer); proc.stdin.end(); resolve(msg); }
+      }
+    });
+    for (const m of messages) {
+      const payload = Buffer.from(JSON.stringify(m), "utf8");
+      const header = Buffer.alloc(4); header.writeUInt32LE(payload.length, 0);
+      proc.stdin.write(Buffer.concat([header, payload]));
+    }
+  });
+}
+const listSessions = async () => (await hostRequest([{ type: "list" }], "sessions")).sessions;
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1000, height: 600 } });
@@ -121,18 +149,30 @@ await page.addInitScript(() => {
   };
 });
 
-const termText = () => page.evaluate(() => {
-  const s = window.__activeSessionForTest && window.__activeSessionForTest();
-  return s ? s : "";
+// Read the active terminal's screen + scrollback through xterm's buffer API
+// (the WebGL renderer draws to a canvas, so there is no text in the DOM).
+const bufferLines = () => page.evaluate(() => {
+  const s = window.terminalInChrome && window.terminalInChrome.active;
+  if (!s) return [];
+  const buf = s.term.buffer.active;
+  const lines = [];
+  for (let i = 0; i < buf.length; i++) lines.push(buf.getLine(i).translateToString(true));
+  return lines;
 });
 
 async function waitForText(text, timeout = 8000) {
   await page.waitForFunction((t) => {
-    const rows = document.querySelectorAll(".pane.active .xterm-rows > div");
-    const all = Array.from(rows).map((r) => r.textContent).join("\n");
-    return all.includes(t);
+    const s = window.terminalInChrome && window.terminalInChrome.active;
+    if (!s) return false;
+    const buf = s.term.buffer.active;
+    for (let i = 0; i < buf.length; i++) {
+      if (buf.getLine(i).translateToString(true).includes(t)) return true;
+    }
+    return false;
   }, text, { timeout });
 }
+
+const findSizeLine = async () => (await bufferLines()).find((r) => /^\d+ \d+\s*$/.test(r.trim())).trim();
 
 let failed = false;
 try {
@@ -146,10 +186,7 @@ try {
   await waitForText("xterm-256color");
   console.log("✓ command output rendered in xterm");
 
-  const dims = await page.evaluate(() => {
-    const rows = Array.from(document.querySelectorAll(".pane.active .xterm-rows > div")).map((r) => r.textContent);
-    return rows.find((r) => /^\d+ \d+\s*$/.test(r.trim())).trim();
-  });
+  const dims = await findSizeLine();
   console.log("  shell reports window size:", dims);
 
   // Resize the viewport and check the pty follows.
@@ -158,10 +195,7 @@ try {
   await page.keyboard.type("clear; stty size; echo RE\"\"SIZED");
   await page.keyboard.press("Enter");
   await waitForText("RESIZED");
-  const after = await page.evaluate(() => {
-    const rows = Array.from(document.querySelectorAll(".pane.active .xterm-rows > div")).map((r) => r.textContent);
-    return rows.find((r) => /^\d+ \d+\s*$/.test(r.trim())).trim();
-  });
+  const after = await findSizeLine();
   if (after === dims) throw new Error("pty size did not change after viewport resize: " + after);
   console.log("✓ resize propagated to pty:", dims, "->", after);
 
@@ -189,7 +223,40 @@ try {
   await waitForText("BACK_AGAIN");
   console.log("✓ reconnect after exit works");
 
+  // Persistence: the shell survives a page reload and its output is replayed.
+  await page.keyboard.type('PERSIST=yes; cd /tmp; echo PERSIST_""MARK');
+  await page.keyboard.press("Enter");
+  await waitForText("PERSIST_MARK");
+  let list = await listSessions();
+  if (list.length !== 1 || !list[0].attached) throw new Error("expected 1 attached session, got " + JSON.stringify(list));
+  await page.reload();
+  await page.waitForSelector(".tab .status.connected", { timeout: 8000 });
+  await page.waitForFunction(() => document.querySelectorAll(".tab").length === 1);
+  await waitForText("PERSIST_MARK"); // replayed scrollback
+  await page.keyboard.type('echo $PERSIST-$(pwd)-RE""ATTACHED');
+  await page.keyboard.press("Enter");
+  await waitForText("yes-/tmp-REATTACHED");
+  list = await listSessions();
+  if (list.length !== 1) throw new Error("reload must re-attach, not spawn: " + JSON.stringify(list));
+  console.log("✓ shell survived page reload and was re-attached with replay");
+
   await page.screenshot({ path: path.join(OUT, "e2e-screenshot.png") });
+
+  // Find bar (Cmd+F) finds text in the scrollback.
+  await page.keyboard.press("Meta+f");
+  await page.waitForSelector(".pane.active .findbar:not(.hidden)");
+  await page.keyboard.type("PERSIST_MARK");
+  await page.waitForFunction(() => /^1\/\d+$/.test(document.querySelector(".pane.active .find-count").textContent));
+  await page.keyboard.press("Escape");
+  await page.waitForSelector(".pane.active .findbar.hidden", { state: "attached" });
+  console.log("✓ find bar works");
+
+  // Closing the tab with × kills the shell in the daemon.
+  await page.click(".tab.active .close");
+  await new Promise((r) => setTimeout(r, 800));
+  list = await listSessions();
+  if (list.length !== 0) throw new Error("closing the tab should kill the shell: " + JSON.stringify(list));
+  console.log("✓ closing a tab kills its shell");
   console.log("ALL E2E TESTS PASSED");
 } catch (err) {
   failed = true;
@@ -199,5 +266,9 @@ try {
   await browser.close();
   for (const p of hosts.values()) p.kill();
   server.close();
+  try {
+    for (const s of await listSessions()) await hostRequest([{ type: "kill", session: s.session }, { type: "list" }], "sessions");
+  } catch {}
+  await rm(RUNTIME, { recursive: true, force: true });
 }
 process.exit(failed || process.exitCode ? 1 : 0);

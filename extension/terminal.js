@@ -1,5 +1,7 @@
-// Terminal page: one xterm.js instance per tab, each backed by its own
-// native messaging port (and therefore its own shell process).
+// Terminal page: one xterm.js instance per tab. Every tab has its own native
+// messaging port; the port is a bridge to a per-user session daemon that owns
+// the shells, so a shell survives the page being closed and is re-attached
+// (with its recent output replayed) the next time the page opens.
 "use strict";
 
 const THEMES = {
@@ -22,6 +24,11 @@ const THEMES = {
     brightCyan: "#3192aa", brightWhite: "#8c959f",
   },
 };
+
+// Flow control (see xterm.js "flow control" guide): stop the daemon reading
+// the pty while xterm has more than HIGH bytes still to render.
+const FLOW_HIGH = 1024 * 1024;
+const FLOW_LOW = 128 * 1024;
 
 const isPanel = document.body.classList.contains("panel");
 
@@ -46,11 +53,17 @@ function applyPageTheme() {
 }
 
 class Session {
-  constructor() {
+  // opts.attach: daemon session id to re-attach to instead of spawning.
+  constructor(opts = {}) {
     this.id = nextId++;
+    this.attachId = opts.attach || null;
+    this.sessionId = this.attachId;
     this.port = null;
     this.exited = false;
-    this.title = "Terminal";
+    this.shellInfo = null;
+    this.title = opts.title || "Terminal";
+    this.pending = 0;
+    this.paused = false;
     this.buildDom();
     this.buildTerminal();
   }
@@ -65,6 +78,18 @@ class Session {
     this.overlayCode = frag.querySelector(".overlay-code");
     frag.querySelector(".overlay-retry").addEventListener("click", () => this.restart());
     frag.querySelector(".overlay-close").addEventListener("click", () => closeSession(this));
+
+    this.findBar = frag.querySelector(".findbar");
+    this.findInput = frag.querySelector(".find-input");
+    this.findCount = frag.querySelector(".find-count");
+    frag.querySelector(".find-prev").addEventListener("click", () => this.find(-1));
+    frag.querySelector(".find-next").addEventListener("click", () => this.find(1));
+    frag.querySelector(".find-close").addEventListener("click", () => this.closeFind());
+    this.findInput.addEventListener("input", () => this.find(1, true));
+    this.findInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { this.find(e.shiftKey ? -1 : 1); e.preventDefault(); }
+      else if (e.key === "Escape") { this.closeFind(); e.preventDefault(); }
+    });
     panesEl.appendChild(frag);
 
     this.tab = document.createElement("div");
@@ -72,7 +97,7 @@ class Session {
     this.tab.setAttribute("role", "tab");
     this.tab.innerHTML =
       '<span class="status"></span><span class="title"></span>' +
-      '<button class="close" title="Close">×</button>';
+      '<button class="close" title="Close (kills the shell)">×</button>';
     this.tabTitle = this.tab.querySelector(".title");
     this.tabStatus = this.tab.querySelector(".status");
     this.tab.addEventListener("mousedown", (e) => {
@@ -106,11 +131,19 @@ class Session {
     });
     this.fit = new FitAddon.FitAddon();
     this.term.loadAddon(this.fit);
+    this.search = new SearchAddon.SearchAddon();
+    this.term.loadAddon(this.search);
+    this.search.onDidChangeResults((r) => {
+      this.findCount.textContent = r && r.resultCount > 0
+        ? (r.resultIndex + 1) + "/" + r.resultCount
+        : (this.findInput.value ? "0/0" : "");
+    });
     this.term.loadAddon(new WebLinksAddon.WebLinksAddon((event, uri) => {
       // Require Cmd/Ctrl-click so ordinary clicks never leave the terminal.
       if (event.metaKey || event.ctrlKey) chrome.tabs.create({ url: uri });
     }));
     this.term.open(this.termEl);
+    this.loadWebgl();
 
     this.term.onData((data) => this.send({ type: "input", data: stringToBase64(data) }));
     this.term.onBinary((data) => {
@@ -119,7 +152,10 @@ class Session {
       this.send({ type: "input", data: bytesToBase64(bytes) });
     });
     this.term.onResize(({ cols, rows }) => this.send({ type: "resize", cols, rows }));
-    this.term.onTitleChange((title) => this.setTitle(title));
+    this.term.onTitleChange((title) => {
+      this.setTitle(title);
+      this.send({ type: "title", title });
+    });
     this.term.onSelectionChange(() => {
       if (settings.copyOnSelect && this.term.hasSelection()) {
         navigator.clipboard.writeText(this.term.getSelection()).catch(() => {});
@@ -128,20 +164,39 @@ class Session {
     this.term.attachCustomKeyEventHandler((e) => this.handleKey(e));
   }
 
+  loadWebgl() {
+    // GPU rendering, as VS Code and Termium do. Falls back to the DOM
+    // renderer when WebGL is unavailable or the context is lost.
+    if (!window.WebglAddon) return;
+    try {
+      const webgl = new WebglAddon.WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      this.term.loadAddon(webgl);
+    } catch (err) {
+      console.warn("WebGL renderer unavailable, using DOM renderer", err);
+    }
+  }
+
   handleKey(e) {
     if (e.type !== "keydown") return true;
     const mod = e.metaKey || e.ctrlKey;
+    const plainMeta = e.metaKey && !e.ctrlKey && !e.altKey;
 
-    // Cmd+C with a selection copies; without a selection it is sent to the
-    // shell as Ctrl+C would be. (xterm never forwards Cmd combos itself.)
-    if (e.metaKey && !e.ctrlKey && !e.altKey && e.key === "c" && this.term.hasSelection()) {
+    // Cmd+C with a selection copies; without a selection nothing is sent
+    // (Ctrl+C is the interrupt, as in Terminal.app).
+    if (plainMeta && e.key === "c" && this.term.hasSelection()) {
       return false; // let the browser fire the copy event
     }
-    if (e.metaKey && !e.ctrlKey && !e.altKey && e.key === "v") {
+    if (plainMeta && e.key === "v") {
       return false; // native paste event handled by xterm
     }
-    if (e.metaKey && e.key === "k") {
+    if (plainMeta && e.key === "k") {
       this.term.clear();
+      e.preventDefault();
+      return false;
+    }
+    if (plainMeta && e.key === "f") {
+      this.openFind();
       e.preventDefault();
       return false;
     }
@@ -171,6 +226,35 @@ class Session {
     return true;
   }
 
+  // -- find bar ---------------------------------------------------------------
+  openFind() {
+    this.findBar.classList.remove("hidden");
+    this.findInput.focus();
+    this.findInput.select();
+  }
+
+  closeFind() {
+    this.findBar.classList.add("hidden");
+    this.search.clearDecorations();
+    this.findCount.textContent = "";
+    this.term.focus();
+  }
+
+  find(direction, incremental = false) {
+    const query = this.findInput.value;
+    if (!query) { this.search.clearDecorations(); this.findCount.textContent = ""; return; }
+    const opts = {
+      incremental,
+      decorations: {
+        matchBackground: "#6b5a1e", matchOverviewRuler: "#e5c07b",
+        activeMatchBackground: "#c9a227", activeMatchColorOverviewRuler: "#ffffff",
+      },
+    };
+    if (direction < 0) this.search.findPrevious(query, opts);
+    else this.search.findNext(query, opts);
+  }
+
+  // -- native port --------------------------------------------------------------
   send(message) {
     if (!this.port || this.exited) return;
     try {
@@ -182,6 +266,8 @@ class Session {
 
   connect() {
     this.exited = false;
+    this.pending = 0;
+    this.paused = false;
     this.hideOverlay();
     this.setStatus("connecting");
     try {
@@ -203,27 +289,35 @@ class Session {
     });
     // Fit first so the shell starts with the right size.
     this.fitNow();
-    this.send({
-      type: "spawn",
-      cols: this.term.cols,
-      rows: this.term.rows,
-      shell: settings.shell || undefined,
-      cwd: settings.cwd || undefined,
-    });
+    if (this.attachId) {
+      this.send({ type: "attach", session: this.attachId, cols: this.term.cols, rows: this.term.rows });
+    } else {
+      this.send({
+        type: "spawn",
+        cols: this.term.cols,
+        rows: this.term.rows,
+        shell: settings.shell || undefined,
+        cwd: settings.cwd || undefined,
+      });
+    }
   }
 
   onMessage(msg) {
     switch (msg.type) {
       case "data":
-        this.term.write(base64ToBytes(msg.data));
+        this.writeData(base64ToBytes(msg.data));
         break;
       case "ready":
-        this.setStatus("connected");
         this.shellInfo = msg;
+        this.sessionId = msg.session;
+        this.attachId = null;
+        this.setStatus("connected");
+        if (msg.title && this.title === "Terminal") this.setTitle(msg.title);
         if (this === activeSession) this.term.focus();
         break;
       case "exit": {
         this.exited = true;
+        this.sessionId = null;
         this.setStatus("exited");
         const how = msg.signal != null ? "signal " + msg.signal : "code " + msg.code;
         this.term.write("\r\n\x1b[90m[Process exited with " + how + "]\x1b[0m\r\n");
@@ -233,15 +327,40 @@ class Session {
         break;
       }
       case "error":
-        this.term.write("\r\n\x1b[31m[host error] " + msg.message + "\x1b[0m\r\n");
         if (!this.shellInfo) {
+          // Could not spawn or attach: a stale session id after a reboot, a
+          // session already shown in another window, a missing shell, ...
           this.exited = true;
           this.setStatus("error");
-          this.showError("Could not start the shell", msg.message);
+          if (this.attachId) {
+            this.showOverlay("Could not re-attach", msg.message + " Reconnect to start a new shell here.");
+            this.attachId = null;
+          } else {
+            this.showError("Could not start the shell", msg.message);
+          }
+        } else {
+          this.term.write("\r\n\x1b[31m[host error] " + msg.message + "\x1b[0m\r\n");
         }
         break;
+      case "hello":
       case "pong":
+      case "sessions":
         break;
+    }
+  }
+
+  writeData(bytes) {
+    this.pending += bytes.length;
+    this.term.write(bytes, () => {
+      this.pending -= bytes.length;
+      if (this.paused && this.pending < FLOW_LOW) {
+        this.paused = false;
+        this.send({ type: "resume" });
+      }
+    });
+    if (!this.paused && this.pending > FLOW_HIGH) {
+      this.paused = true;
+      this.send({ type: "pause" });
     }
   }
 
@@ -249,14 +368,24 @@ class Session {
     if (this.port) { try { this.port.disconnect(); } catch (_) {} }
     this.port = null;
     this.shellInfo = null;
+    this.attachId = null;
     this.term.reset();
     this.connect();
   }
 
-  destroy() {
+  // Detach: the shell keeps running in the daemon.
+  detach() {
     this.exited = true;
     if (this.port) { try { this.port.disconnect(); } catch (_) {} }
     this.port = null;
+  }
+
+  // Kill the shell, then drop the UI.
+  destroy() {
+    if (this.port && this.shellInfo && !this.exited) {
+      try { this.port.postMessage({ type: "kill" }); } catch (_) {}
+    }
+    this.detach();
     this.term.dispose();
     this.pane.remove();
     this.tab.remove();
@@ -314,8 +443,8 @@ class Session {
   }
 }
 
-function newSession() {
-  const s = new Session();
+function newSession(opts) {
+  const s = new Session(opts);
   sessions.push(s);
   activateSession(s);
   s.connect(); // after activation so the first fit() sees the real pane size
@@ -353,6 +482,32 @@ function cycleSession(delta) {
   activateSession(sessions[(idx + delta + sessions.length) % sessions.length]);
 }
 
+// Ask the daemon which shells are still running but not shown anywhere, and
+// re-attach to each of them. Resolves with the number of tabs created.
+function reattachDetached() {
+  return new Promise((resolve) => {
+    let port;
+    try {
+      port = chrome.runtime.connectNative(HOST_NAME);
+    } catch (_) {
+      resolve(0);
+      return;
+    }
+    let done = false;
+    const finish = (n) => { if (!done) { done = true; try { port.disconnect(); } catch (_) {} resolve(n); } };
+    const timer = setTimeout(() => finish(0), 5000);
+    port.onMessage.addListener((msg) => {
+      if (msg.type !== "sessions") return;
+      clearTimeout(timer);
+      const detached = msg.sessions.filter((s) => !s.attached);
+      for (const s of detached) newSession({ attach: s.session, title: s.title });
+      finish(detached.length);
+    });
+    port.onDisconnect.addListener(() => { void chrome.runtime.lastError; clearTimeout(timer); finish(0); });
+    port.postMessage({ type: "list" });
+  });
+}
+
 document.getElementById("new-tab").addEventListener("click", () => newSession());
 document.getElementById("open-options").addEventListener("click", () => chrome.runtime.openOptionsPage());
 
@@ -378,15 +533,22 @@ chrome.storage.onChanged.addListener((changes, area) => {
   sessions.forEach((s) => s.applySettings());
 });
 
-window.addEventListener("beforeunload", () => sessions.forEach((s) => s.destroy()));
+// Closing the page detaches (shells keep running) unless persistence is off.
+window.addEventListener("beforeunload", () => {
+  sessions.forEach((s) => (settings.persistSessions ? s.detach() : s.destroy()));
+});
 
 // Keep focus in the terminal when clicking dead space.
 panesEl.addEventListener("mousedown", (e) => {
   if (e.target === panesEl && activeSession) activeSession.term.focus();
 });
 
-loadSettings().then((loaded) => {
+// Debugging / test hook: inspect sessions from DevTools.
+window.terminalInChrome = { sessions, get active() { return activeSession; } };
+
+loadSettings().then(async (loaded) => {
   settings = loaded;
   applyPageTheme();
-  newSession();
+  const reattached = settings.persistSessions ? await reattachDetached() : 0;
+  if (reattached === 0) newSession();
 });

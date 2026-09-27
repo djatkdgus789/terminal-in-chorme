@@ -60,7 +60,7 @@ document.getElementById("test-host").addEventListener("click", () => {
     port.disconnect();
   }, 4000);
   port.onMessage.addListener((msg) => {
-    if (done) return;
+    if (done || msg.type === "hello") return;
     done = true;
     clearTimeout(timer);
     hostStatus.textContent = msg.type === "pong" ? "✓ Native host is installed and responding"
