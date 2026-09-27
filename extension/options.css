@@ -26,3 +26,16 @@ button[type=submit] { background: #0969da; color: #fff; border-color: #0969da; }
 table.keys { border-collapse: collapse; width: 100%; }
 table.keys td { padding: 4px 6px; border-bottom: 1px solid color-mix(in srgb, CanvasText 10%, transparent); }
 table.keys td:first-child { font-family: Menlo, Monaco, monospace; font-size: 12px; white-space: nowrap; width: 40%; }
+
+.profile {
+  border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
+  border-radius: 8px;
+  padding: 10px 12px 4px;
+  margin: 10px 0;
+}
+.profile .head { display: flex; align-items: center; gap: 10px; }
+.profile .head input[type=text] { flex: 1; margin: 0; }
+.profile .head label { margin: 0; font-weight: 400; white-space: nowrap; }
+.profile .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.profile .grid label { margin: 8px 0; }
+.profile button.remove { color: #cf222e; }

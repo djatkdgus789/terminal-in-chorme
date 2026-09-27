@@ -23,10 +23,13 @@ Python 표준 라이브러리만 사용하므로 별도 패키지 설치가 필�
 
 - 진짜 셸: 로그인 셸(`-l`)로 실행되어 `~/.zprofile`, `~/.zshrc`, Homebrew PATH 등이 그대로 적용
 - 256색/트루컬러, 창 크기 자동 반영(`stty size`, vim/htop 등 정상 동작), 유니코드/한글
-- 세션 지속: 페이지를 닫거나 새로고침해도 셸이 유지되고, 다시 열면 출력이 복원됨 (탭의 ×는 셸을 종료)
-- 탭 여러 개(각 탭은 독립된 셸 프로세스), 사이드 패널 모드
+- 세션 지속: 페이지를 닫거나 새로고침해도 셸이 유지되고, 다시 열면 탭/분할 배치와 출력이 복원됨 (탭의 ×는 셸을 종료)
+- 탭 여러 개와 **분할 창**(좌우/상하, 드래그로 크기 조절, 방향키로 포커스 이동), 사이드 패널 모드
+- **프로파일**: 셸·시작 디렉터리·테마·폰트 세트를 여러 개 저장하고 탭마다 다르게 열기
+- **셸 통합**(zsh, bash): 실패한 명령에 빨간 마크, ⌘↑/⌘↓로 프롬프트 사이 이동, 새 분할/탭이 현재 디렉터리에서 시작. dotfile을 건드리지 않음
+- 여러 줄 붙여넣기 확인 창, 파일 경로 ⌘클릭으로 열기(`code -g {path}:{line}` 같은 명령 지정 가능)
 - WebGL 렌더러(사용 불가 시 DOM 렌더러로 자동 대체), 대량 출력 시 흐름 제어(pause/resume)
-- ⌘F 검색, ⌘C/⌘V 복사·붙여넣기, ⌘-클릭으로 링크 열기, 폰트 크기 단축키
+- ⌘F 검색(정규식·대소문자 옵션), ⌘C/⌘V 복사·붙여넣기, ⌘-클릭으로 링크 열기, 폰트 크기 단축키
 - 다크/라이트/시스템 테마, 셸·시작 디렉터리·폰트·커서 등 설정 페이지
 - 셸 종료 시 종료 코드 표시 및 재연결 버튼, 호스트 미설치 시 안내 화면
 
@@ -72,15 +75,32 @@ ID가 다르게 표시된다면(예: manifest의 `key`를 바꾼 경우):
 | --- | --- |
 | `Alt+Shift+T` | 어느 페이지에서나 새 터미널 탭 열기 (`chrome://extensions/shortcuts`에서 변경 가능) |
 | `Alt+Shift+P` | 사이드 패널에 터미널 열기 |
-| `Ctrl+Shift+T` / `Ctrl+Shift+W` | 터미널 탭 추가 / 닫기 |
+| `Ctrl+Shift+T` / `Ctrl+Shift+W` | 터미널 탭 추가 / 현재 창 닫기 (마지막 창이면 탭 닫힘) |
+| `Ctrl+Shift+D` / `Ctrl+Shift+E` | 오른쪽으로 분할 / 아래로 분할 |
+| `Ctrl+Shift+←↑→↓` | 그 방향의 분할 창으로 포커스 이동 |
 | `Ctrl+Shift+[` / `Ctrl+Shift+]` | 이전 / 다음 터미널 탭 |
+| `⌘↑` / `⌘↓` | 이전 / 다음 프롬프트로 스크롤 (셸 통합) |
 | `⌘C` / `⌘V` | 선택 영역 복사 / 붙여넣기 (`Ctrl+C`는 평소처럼 SIGINT) |
 | `⌘K` | 화면 지우기 |
 | `⌘F` | 스크롤백 검색 (Enter 다음, Shift+Enter 이전, Esc 닫기) |
 | `⌘+` / `⌘-` / `⌘0` | 폰트 크기 조절 |
-| `⌘-클릭` | 링크를 새 브라우저 탭에서 열기 |
+| `⌘-클릭` | 링크는 새 브라우저 탭에서, 파일 경로(`src/app.py:12` 등)는 OS 또는 지정한 명령으로 열기 |
+| `+` 우클릭 또는 `▾` | 프로파일을 골라 새 탭 열기 |
 
-`⌘T`, `⌘W`, `⌘1~9` 등 Chrome이 예약한 단축키는 확장에서 가로챌 수 없어 브라우저 동작이 우선합니다.
+`⌘T`, `⌘W`, `⌘D`, `⌘1~9` 등 Chrome이 예약하거나 메뉴에 걸린 단축키는 확장에서 안전하게 가로챌 수 없어 iTerm2와 달리 Ctrl+Shift 조합을 씁니다.
+
+### 프로파일
+
+설정 페이지의 **Profiles**에서 이름, 셸, 시작 디렉터리, 테마, 폰트, 커서를 가진 프로파일을 여러 개 만들 수 있습니다. 비워 둔 항목은 전역 설정을 따릅니다. 기본 프로파일로 지정하면 `+` 버튼과 `Ctrl+Shift+T`가 그 프로파일로 열리고, 나머지는 `▾` 메뉴(또는 `+` 우클릭)에서 고릅니다. 분할 창은 원래 창의 프로파일을 물려받습니다.
+
+### 셸 통합
+
+zsh와 bash에서 프롬프트 앞뒤와 명령 종료 시점에 OSC 133 시퀀스를, 디렉터리가 바뀔 때 OSC 7을 내보내도록 합니다. 방법은 VS Code와 같습니다.
+
+- zsh: `ZDOTDIR`을 `host/shell-integration/zsh/`로 바꿔 시작하고, 그 안의 `.zshenv`/`.zprofile`/`.zshrc`가 사용자의 원래 파일을 순서대로 source한 뒤 훅을 설치하고 `ZDOTDIR`을 되돌립니다.
+- bash: `bash --init-file host/shell-integration/bash/integration.bash`로 시작하고, 스크립트가 `/etc/profile`과 `~/.bash_profile`(없으면 `.bash_login`, `.profile`)을 source한 뒤 `PROMPT_COMMAND`와 `DEBUG` trap을 설치합니다.
+
+사용자의 dotfile은 수정하지 않으며, fish 등 다른 셸은 통합 없이 그대로 실행됩니다. 설정에서 끌 수 있습니다.
 
 설정(툴바 아이콘 우클릭 → 옵션, 또는 터미널 탭의 ⚙)에서 셸 경로, 시작 디렉터리, 테마, 폰트, 커서, Option 키를 Meta로 사용할지, 툴바 버튼이 탭/사이드 패널 중 무엇을 열지, 페이지를 닫을 때 셸을 유지할지 지정할 수 있습니다.
 
@@ -101,14 +121,17 @@ ID가 다르게 표시된다면(예: manifest의 `key`를 바꾼 경우):
 extension/            Chrome 확장 (Manifest V3)
   manifest.json
   background.js       툴바 버튼·단축키 → 탭/사이드 패널 열기
-  terminal.html/js    xterm.js 터미널 UI, 탭 관리, 네이티브 포트 연결
+  terminal.html/js    앱 셸: 탭, 프로파일 메뉴, 단축키, 배치 저장/복원
+  session.js          터미널 창 하나: xterm.js, 네이티브 포트, 셸 통합, 검색, 붙여넣기 보호, 경로 링크
+  workspace.js        탭 = 분할 창 트리 (렌더링, 드래그 리사이즈, 포커스 이동, 직렬화)
   panel.html          사이드 패널용 진입점 (같은 스크립트)
   options.html/js     설정 페이지 + 호스트 연결 테스트
   shared.js           설정 기본값, base64 유틸, 오류 메시지
   vendor/             xterm.js 5.5.0, fit / web-links / search / webgl 애드온 (MIT)
 host/
   terminal_host.py    네이티브 메시징 호스트 (Chrome ↔ 데몬 브리지, 데몬 자동 시작)
-  terminal_daemon.py  세션 데몬 (pty 생성, 셸 소유, 재연결/출력 재생, 흐름 제어)
+  terminal_daemon.py  세션 데몬 (pty 생성, 셸 소유, 재연결/출력 재생, 흐름 제어, 파일 열기)
+  shell-integration/  zsh, bash 셸 통합 스크립트
   test_host.py        호스트+데몬 프로토콜 테스트
 install.sh            macOS 호스트 등록 스크립트
 uninstall.sh
@@ -117,8 +140,10 @@ test/e2e_page_test.mjs  headless Chromium으로 확장 페이지 + 실제 호스
 
 ### 메시지 프로토콜
 
-확장 → 데몬: `spawn {cols, rows, shell?, cwd?}`, `attach {session, cols, rows}`, `list`, `input {data: base64}`, `resize {cols, rows}`, `title {title}`, `pause` / `resume`, `kill {session?}`, `ping`
-데몬 → 확장: `hello {version}`, `ready {session, pid, shell, cwd, title, replay}`, `data {data: base64}`, `exit {code, signal}`, `sessions [...]`, `error {message}`, `pong`
+확장 → 데몬: `spawn {cols, rows, shell?, cwd?, integration?, profile?}`, `attach {session, cols, rows}`, `list`, `input {data: base64}`, `resize {cols, rows}`, `title {title}`, `open {path, line?, command?}`, `pause` / `resume`, `kill {session?}`, `ping`
+데몬 → 확장: `hello {version}`, `ready {session, pid, shell, cwd, title, profile, replay}`, `data {data: base64}`, `exit {code, signal}`, `sessions [...]`, `opened {path}`, `error {message}`, `pong`
+
+탭/분할 배치는 확장이 `chrome.storage.local`에 세션 ID 트리로 저장하고, 페이지를 열 때 데몬의 세션 목록과 맞춰 복원합니다.
 
 브리지는 프레임을 해석하지 않고 그대로 넘기므로 양쪽 프레이밍이 동일합니다(4바이트 LE 길이 + JSON).
 pty 출력은 바이너리이므로 base64로 감싸며, 호스트 → Chrome 메시지 1 MB 제한을 고려해 64 KB 단위로 나눠 보냅니다.
@@ -147,6 +172,8 @@ node test/e2e_page_test.mjs        # playwright 필요 (npm i playwright): 실�
 
 ## 참고한 프로젝트
 
+- [iTerm2](https://iterm2.com/) — 분할 창, 프로파일, 셸 통합(명령 마크·프롬프트 이동·현재 디렉터리 상속), 여러 줄 붙여넣기 경고, 파일 경로 ⌘클릭을 이 프로젝트에 맞게 옮겼습니다. Chrome 안에서는 핫키 창이나 ⌘T/⌘W/⌘D 같은 단축키를 그대로 쓸 수 없어 Ctrl+Shift 조합으로 대체했습니다.
+- [VS Code 통합 터미널](https://github.com/microsoft/vscode) — dotfile을 건드리지 않는 셸 통합 방식(zsh `ZDOTDIR` 교체, bash `--init-file`)을 그대로 따랐습니다.
 - [Termium](https://github.com/imshaikot/termium) — Chrome DevTools 안의 터미널. Rust 데몬이 pty를 소유해 DevTools를 닫아도 세션이 유지되는 구조, WebGL 렌더러, 검색 기능을 참고해 이 프로젝트의 세션 데몬 / 재연결 / ⌘F / WebGL을 추가했습니다. (Termium은 데이터 경로로 로컬 WebSocket을, 네이티브 메시징은 인증 티켓 발급에만 씁니다. 이 프로젝트는 의존성 없이 Python 표준 라이브러리만으로 끝내기 위해 네이티브 메시징 포트를 데이터 경로로 그대로 사용합니다.)
 - [firefox-side-panel-terminal](https://github.com/chengmingbo/firefox-side-panel-terminal) — Firefox 사이드바 터미널 (xterm.js + Go 헬퍼). base64로 pty 바이트를 감싸는 방식과 재연결 지원이 같은 접근입니다.
 - [Secure Shell / hterm](https://chromium.googlesource.com/apps/libapps/+/HEAD/nassh/docs/FAQ.md) — Google의 Chrome SSH 클라이언트. macOS에서 ⌘C/⌘V 동작, copy-on-select 옵션, Chrome이 예약한 단축키(⌘T, ⌘W 등)는 탭 안에서 가로챌 수 없다는 제약을 참고했습니다.

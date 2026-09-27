@@ -112,7 +112,8 @@ await page.exposeFunction("__hostDisconnect", (portId) => {
 await page.addInitScript(() => {
   const ports = new Map();
   let nextPort = 1;
-  const store = {};
+  const store = JSON.parse(localStorage.getItem("__sync") || "{}");
+  const local = JSON.parse(localStorage.getItem("__local") || "{}");
   const listeners = (list) => ({ addListener: (fn) => list.push(fn), removeListener: () => {} });
   window.__deliver = (id, msg) => { const p = ports.get(id); if (p) p._onMessage.forEach((fn) => fn(msg)); };
   window.__disconnected = (id) => { const p = ports.get(id); if (p) { ports.delete(id); p._onDisconnect.forEach((fn) => fn()); } };
@@ -142,7 +143,11 @@ await page.addInitScript(() => {
     storage: {
       sync: {
         get: (defaults, cb) => cb({ ...defaults, ...store }),
-        set: (items, cb) => { Object.assign(store, items); cb && cb(); },
+        set: (items, cb) => { Object.assign(store, items); localStorage.setItem("__sync", JSON.stringify(store)); cb && cb(); },
+      },
+      local: {
+        get: (defaults, cb) => cb({ ...defaults, ...local }),
+        set: (items, cb) => { Object.assign(local, items); localStorage.setItem("__local", JSON.stringify(local)); cb && cb(); },
       },
       onChanged: listeners([]),
     },
@@ -211,12 +216,12 @@ try {
   // Exit the shell -> overlay appears, reconnect works.
   await page.keyboard.type("exit 7");
   await page.keyboard.press("Enter");
-  await page.waitForSelector(".pane.active .overlay:not(.hidden)", { timeout: 8000 });
-  const overlayText = await page.textContent(".pane.active .overlay-detail");
+  await page.waitForSelector(".workspace.active .pane.focused .overlay:not(.hidden)", { timeout: 8000 });
+  const overlayText = await page.textContent(".workspace.active .pane.focused .overlay-detail");
   if (!overlayText.includes("code 7")) throw new Error("overlay did not report exit code: " + overlayText);
   console.log("✓ exit overlay shown with exit code");
-  await page.click(".pane.active .overlay-retry");
-  await page.waitForSelector(".pane.active .overlay.hidden", { state: "attached", timeout: 8000 });
+  await page.click(".workspace.active .pane.focused .overlay-retry");
+  await page.waitForSelector(".workspace.active .pane.focused .overlay.hidden", { state: "attached", timeout: 8000 });
   await page.waitForSelector(".tab .status.connected", { timeout: 8000 });
   await page.keyboard.type("echo BACK_\"\"AGAIN");
   await page.keyboard.press("Enter");
@@ -244,12 +249,86 @@ try {
 
   // Find bar (Cmd+F) finds text in the scrollback.
   await page.keyboard.press("Meta+f");
-  await page.waitForSelector(".pane.active .findbar:not(.hidden)");
+  await page.waitForSelector(".workspace.active .pane.focused .findbar:not(.hidden)");
   await page.keyboard.type("PERSIST_MARK");
-  await page.waitForFunction(() => /^1\/\d+$/.test(document.querySelector(".pane.active .find-count").textContent));
+  await page.waitForFunction(() => /^1\/\d+$/.test(document.querySelector(".workspace.active .pane.focused .find-count").textContent));
   await page.keyboard.press("Escape");
-  await page.waitForSelector(".pane.active .findbar.hidden", { state: "attached" });
+  await page.waitForSelector(".workspace.active .pane.focused .findbar.hidden", { state: "attached" });
   console.log("✓ find bar works");
+
+  // Shell integration: a failing command gets a red mark and an exit code.
+  await page.keyboard.type("false");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => {
+    const s = window.terminalInChrome.active;
+    return s.commands.some((c) => c.command === "false" && c.exitCode === 1);
+  }, null, { timeout: 8000 });
+  await page.waitForSelector(".workspace.active .cmd-mark.failed", { state: "attached", timeout: 8000 });
+  const cwd = await page.evaluate(() => window.terminalInChrome.active.cwd);
+  if (cwd !== "/tmp") throw new Error("OSC 7 cwd not tracked: " + cwd);
+  console.log("✓ shell integration: exit-code marks and cwd tracking");
+
+  // Split right (Ctrl+Shift+D): second pane in the same tab, inheriting the cwd.
+  await page.keyboard.press("Control+Shift+D");
+  await page.waitForFunction(() => window.terminalInChrome.tabs.length === 1 && window.terminalInChrome.sessions.length === 2);
+  await page.waitForFunction(() => window.terminalInChrome.sessions.every((s) => s.status === "connected"), null, { timeout: 8000 });
+  const paneCount = await page.evaluate(() => document.querySelectorAll(".workspace.active .split.row .pane").length);
+  if (paneCount !== 2) throw new Error("expected 2 panes in a row split, got " + paneCount);
+  await page.keyboard.type('echo SPLIT_$(pwd)_""CWD');
+  await page.keyboard.press("Enter");
+  await waitForText("SPLIT_/tmp_CWD");
+  console.log("✓ split pane spawned its own shell in the inherited cwd");
+
+  // Focus navigation between panes.
+  await page.keyboard.press("Control+Shift+ArrowLeft");
+  const leftHasMark = await page.evaluate(() => window.terminalInChrome.active.commands.some((c) => c.command === "false"));
+  if (!leftHasMark) throw new Error("Ctrl+Shift+Left did not focus the left pane");
+  await page.keyboard.press("Control+Shift+ArrowRight");
+  console.log("✓ pane focus navigation");
+
+  // Layout survives a reload: still one tab with two panes.
+  await page.reload();
+  await page.waitForFunction(() => window.terminalInChrome.tabs.length === 1 && window.terminalInChrome.sessions.length === 2, null, { timeout: 8000 });
+  await page.waitForFunction(() => window.terminalInChrome.sessions.every((s) => s.status === "connected"), null, { timeout: 8000 });
+  list = await listSessions();
+  if (list.length !== 2) throw new Error("reload must re-attach both panes: " + JSON.stringify(list));
+  console.log("✓ split layout restored after reload");
+  await page.screenshot({ path: path.join(OUT, "e2e-split.png") });
+
+  // Paste guard: a multi-line paste asks first, then pastes.
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.setData("text/plain", "echo PASTE_LINE_ONE\necho PASTE_LINE_TWO\n");
+    const ta = document.querySelector(".workspace.active .pane.focused textarea");
+    ta.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  await page.waitForSelector(".workspace.active .pane.focused .paste-guard:not(.hidden)");
+  await page.click(".workspace.active .pane.focused .paste-confirm");
+  await waitForText("PASTE_LINE_TWO");
+  console.log("✓ paste guard");
+
+  // Close the focused pane with Ctrl+Shift+W: tab stays, one shell killed.
+  await page.keyboard.press("Control+Shift+W");
+  await page.waitForFunction(() => window.terminalInChrome.tabs.length === 1 && window.terminalInChrome.sessions.length === 1);
+  await new Promise((r) => setTimeout(r, 500));
+  list = await listSessions();
+  if (list.length !== 1) throw new Error("closing a pane should kill its shell: " + JSON.stringify(list));
+  console.log("✓ closing a pane kills only that shell");
+
+  // Profiles: seed one via storage, open it from the ▾ menu, check shell + cwd.
+  await page.evaluate(() => new Promise((r) => chrome.storage.sync.set({
+    profiles: [{ id: "p1", name: "Tmp shell", shell: "/bin/sh", cwd: "/tmp" }], defaultProfile: "" }, r)));
+  await page.reload();
+  await page.waitForSelector(".tab .status.connected", { timeout: 8000 });
+  await page.click("#profile-menu-btn");
+  await page.click("#profile-menu .menu-item:nth-child(2)");
+  await page.waitForFunction(() => window.terminalInChrome.tabs.length === 2);
+  await page.waitForFunction(() => window.terminalInChrome.active.status === "connected", null, { timeout: 8000 });
+  const info = await page.evaluate(() => ({ profile: window.terminalInChrome.active.profileId, shell: window.terminalInChrome.active.shellInfo.shell, cwd: window.terminalInChrome.active.shellInfo.cwd }));
+  if (info.profile !== "p1" || info.shell !== "/bin/sh" || info.cwd !== "/tmp") throw new Error("profile not applied: " + JSON.stringify(info));
+  console.log("✓ profile menu opens a tab with the profile's shell and cwd");
+  await page.keyboard.press("Control+Shift+W");
+  await page.waitForFunction(() => window.terminalInChrome.tabs.length === 1);
 
   // Closing the tab with × kills the shell in the daemon.
   await page.click(".tab.active .close");

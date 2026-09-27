@@ -201,7 +201,28 @@ def run(env):
     assert b.close() == 0
     print("exit code OK")
 
-    # 11. with nothing left to do the daemon exits on its own
+    # 11. shell integration (bash): prompt marks, exit codes, cwd reports;
+    #     the "open" message validates paths
+    e = Port(env)
+    e.send({"type": "spawn", "cols": 80, "rows": 24, "shell": "/bin/bash", "integration": True, "profile": "p1"})
+    assert e.expect("ready")["profile"] == "p1"
+    e.type("cd /tmp; false\n")
+    out = e.read_until("/tmp\x07")  # the OSC 7 report that follows the exit mark
+    for mark in ("\x1b]133;A\x07", "\x1b]133;B\x07", "\x1b]133;C\x07", "\x1b]133;D;1\x07", "\x1b]7;file://"):
+        assert mark in out, "missing %r in %r" % (mark, out)
+    e.send({"type": "open", "path": "/definitely/not/here"})
+    msg = e.recv()
+    while msg["type"] in ("hello", "data"):
+        msg = e.recv()
+    assert msg["type"] == "error" and "no such file" in msg["message"], msg
+    e.send({"type": "open", "path": HOST, "line": 3, "command": "true {path} {line}"})
+    assert e.expect("opened")["path"] == HOST
+    e.type("exit\n")
+    e.expect("exit")
+    e.close()
+    print("shell integration + open OK")
+
+    # 12. with nothing left to do the daemon exits on its own
     sock = os.path.join(env["TIC_RUNTIME_DIR"], "daemon.sock")
     deadline = time.time() + 30
     while os.path.exists(sock) and time.time() < deadline:

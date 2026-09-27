@@ -11,7 +11,10 @@
   <header id="tabbar">
     <div id="tabs" role="tablist"></div>
     <div id="tabbar-actions">
-      <button id="new-tab" title="New terminal (Ctrl+Shift+T)">+</button>
+      <button id="new-tab" title="New tab (Ctrl+Shift+T) · right-click for profiles">+</button>
+      <button id="profile-menu-btn" class="small" title="New tab with profile…">&#9662;</button>
+      <button id="split-right" title="Split right (Ctrl+Shift+D)">&#9707;</button>
+      <button id="split-down" title="Split down (Ctrl+Shift+E)">&#9636;</button>
       <button id="open-options" title="Settings">&#9881;</button>
     </div>
   </header>
@@ -22,10 +25,23 @@
       <div class="term"></div>
       <div class="findbar hidden">
         <input class="find-input" type="text" placeholder="Find" spellcheck="false">
+        <button class="find-case toggle" aria-pressed="false" title="Match case">Aa</button>
+        <button class="find-regex toggle" aria-pressed="false" title="Regular expression">.*</button>
         <span class="find-count"></span>
         <button class="find-prev" title="Previous (Shift+Enter)">&#9650;</button>
         <button class="find-next" title="Next (Enter)">&#9660;</button>
         <button class="find-close" title="Close (Esc)">&times;</button>
+      </div>
+      <div class="paste-guard hidden">
+        <div class="paste-card">
+          <p class="paste-summary"></p>
+          <pre class="paste-preview"></pre>
+          <div class="paste-actions">
+            <button class="paste-confirm">Paste</button>
+            <button class="paste-oneline">Paste as one line</button>
+            <button class="paste-cancel">Cancel</button>
+          </div>
+        </div>
       </div>
       <div class="overlay hidden">
         <div class="overlay-card">
@@ -34,7 +50,7 @@
           <pre class="overlay-code hidden"></pre>
           <div class="overlay-actions">
             <button class="overlay-retry">Reconnect</button>
-            <button class="overlay-close">Close tab</button>
+            <button class="overlay-close">Close pane</button>
           </div>
         </div>
       </div>
@@ -47,6 +63,8 @@
   <script src="vendor/addon-search.js"></script>
   <script src="vendor/addon-webgl.js"></script>
   <script src="shared.js"></script>
+  <script src="session.js"></script>
+  <script src="workspace.js"></script>
   <script src="terminal.js"></script>
 </body>
 </html>

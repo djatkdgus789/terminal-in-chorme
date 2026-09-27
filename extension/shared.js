@@ -16,7 +16,42 @@ const DEFAULT_SETTINGS = {
   copyOnSelect: false,
   actionOpens: "tab",   // tab | panel
   persistSessions: true, // keep shells alive when the page closes; re-attach on reopen
+  shellIntegration: true, // OSC 133 prompt marks + OSC 7 cwd (zsh, bash)
+  pasteGuard: true,     // confirm multi-line pastes
+  inheritCwd: true,     // new splits/tabs start in the current pane's directory
+  openCommand: "",      // for Cmd-click on a file path, e.g. "code -g {path}:{line}"; empty = `open`
+  profiles: [],         // [{id, name, shell, cwd, theme, fontSize, fontFamily, cursorStyle}]
+  defaultProfile: "",   // profile id used by the + button and Ctrl+Shift+T
 };
+
+// Settings a profile may override (empty string / null = inherit the global value).
+const PROFILE_KEYS = ["shell", "cwd", "theme", "fontSize", "fontFamily", "cursorStyle"];
+
+function getProfile(settings, id) {
+  return (settings.profiles || []).find((p) => p.id === id) || null;
+}
+
+function effectiveSettings(settings, profile) {
+  const out = { ...settings };
+  if (profile) {
+    for (const key of PROFILE_KEYS) {
+      const v = profile[key];
+      if (v !== undefined && v !== null && v !== "") out[key] = v;
+    }
+  }
+  return out;
+}
+
+function newProfileId() {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+// "file://host/%2Fpath" (OSC 7) -> "/path"
+function fileUrlToPath(url) {
+  const m = /^file:\/\/[^/]*(\/.*)$/.exec(url || "");
+  if (!m) return null;
+  try { return decodeURIComponent(m[1]); } catch (_) { return m[1]; }
+}
 
 function loadSettings() {
   return new Promise((resolve) => {

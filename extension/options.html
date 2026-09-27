@@ -33,6 +33,16 @@
       </section>
 
       <section>
+        <h2>Profiles</h2>
+        <p class="muted">A profile overrides the shell, directory and look for the tabs it opens. Blank fields inherit the
+          global settings above/below. Open one with the ▾ next to + (or right-click +).</p>
+        <div id="profiles"></div>
+        <div class="row">
+          <button type="button" id="add-profile">Add profile</button>
+        </div>
+      </section>
+
+      <section>
         <h2>Appearance</h2>
         <label>Theme
           <select name="theme">
@@ -68,6 +78,15 @@
           <small>Shells live in a small per-user daemon. Closing the browser tab or side panel only detaches;
             the next terminal page re-attaches with the recent output. The × on a tab still kills that shell.</small>
         </label>
+        <label class="check"><input name="shellIntegration" type="checkbox"> Shell integration (zsh, bash)
+          <small>Marks each prompt: failed commands get a red bar, ⌘↑/⌘↓ jump between prompts, and new
+            splits/tabs can start in the current directory. Nothing in your dotfiles is modified.</small>
+        </label>
+        <label class="check"><input name="inheritCwd" type="checkbox"> New splits and tabs start in the current pane's directory</label>
+        <label class="check"><input name="pasteGuard" type="checkbox"> Ask before pasting more than one line</label>
+        <label>Open files with (⌘-click on a path)
+          <input name="openCommand" type="text" placeholder="open {path}   e.g.  code -g {path}:{line}" spellcheck="false">
+        </label>
         <label>Toolbar button opens
           <select name="actionOpens">
             <option value="tab">A new tab</option>
@@ -80,13 +99,17 @@
         <h2>Keyboard shortcuts</h2>
         <table class="keys">
           <tr><td>Ctrl+Shift+T</td><td>New terminal tab</td></tr>
-          <tr><td>Ctrl+Shift+W</td><td>Close terminal tab</td></tr>
+          <tr><td>Ctrl+Shift+W</td><td>Close pane (last pane closes the tab)</td></tr>
+          <tr><td>Ctrl+Shift+D / Ctrl+Shift+E</td><td>Split right / split down</td></tr>
+          <tr><td>Ctrl+Shift+← ↑ → ↓</td><td>Focus the pane in that direction</td></tr>
           <tr><td>Ctrl+Shift+[ / ]</td><td>Previous / next terminal tab</td></tr>
+          <tr><td>⌘↑ / ⌘↓</td><td>Previous / next prompt (shell integration)</td></tr>
           <tr><td>⌘C / ⌘V</td><td>Copy selection / paste</td></tr>
           <tr><td>⌘K</td><td>Clear screen</td></tr>
           <tr><td>⌘F</td><td>Find in scrollback (Enter / Shift+Enter, Esc closes)</td></tr>
           <tr><td>⌘+ / ⌘- / ⌘0</td><td>Font size bigger / smaller / reset</td></tr>
           <tr><td>⌘-click a link</td><td>Open it in a new browser tab</td></tr>
+          <tr><td>⌘-click a file path</td><td>Open it with the OS (or your "Open files with" command)</td></tr>
         </table>
         <p class="muted">Global shortcuts (open a terminal from any page) are configured at
           <code>chrome://extensions/shortcuts</code>.</p>

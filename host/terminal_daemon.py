@@ -13,19 +13,22 @@ Framing is the Chrome native messaging framing on both sides: a 4-byte
 little-endian length followed by UTF-8 JSON.
 
 Client -> daemon:
-  {"type": "spawn", "cols", "rows", "shell"?, "cwd"?}   start a shell and attach
+  {"type": "spawn", "cols", "rows", "shell"?, "cwd"?, "integration"?, "profile"?}
+                                                       start a shell and attach
   {"type": "attach", "session", "cols", "rows"}        attach to a detached shell
   {"type": "list"}                                     list sessions
   {"type": "input", "data": base64}
   {"type": "resize", "cols", "rows"}
   {"type": "title", "title"}                           remember the tab title
+  {"type": "open", "path", "line"?, "command"?}        open a file with the OS / an editor
   {"type": "pause"} / {"type": "resume"}               flow control
   {"type": "kill", "session"?}                         terminate a shell
   {"type": "ping"}
 
 Daemon -> client:
   {"type": "hello", "version"}
-  {"type": "ready", "session", "pid", "shell", "cwd", "title", "replay": bool}
+  {"type": "ready", "session", "pid", "shell", "cwd", "title", "profile", "replay": bool}
+  {"type": "opened", "path"}
   {"type": "data", "data": base64}
   {"type": "exit", "code", "signal"}
   {"type": "sessions", "sessions": [...]}
@@ -35,6 +38,8 @@ Daemon -> client:
 
 import base64
 import errno
+import shlex
+import subprocess
 import fcntl
 import json
 import os
@@ -49,7 +54,9 @@ import threading
 import time
 import uuid
 
-VERSION = 2
+VERSION = 3
+HERE = os.path.dirname(os.path.abspath(__file__))
+INTEGRATION_DIR = os.path.join(HERE, "shell-integration")
 MAX_CHUNK = 64 * 1024          # keep host->Chrome frames well under 1 MB
 SCROLLBACK_BYTES = 512 * 1024  # raw output replayed on re-attach
 IDLE_EXIT_SECONDS = 15
@@ -156,13 +163,45 @@ def termios_TIOCSCTTY():
 
 # --- sessions ---------------------------------------------------------------
 
+def shell_integration(shell, env, argv):
+    """Arrange for the shell to emit OSC 133 prompt marks and OSC 7 cwd
+    reports without touching the user's dotfiles (VS Code's approach)."""
+    name = os.path.basename(shell)
+    if name == "zsh":
+        env["TIC_USER_ZDOTDIR"] = env.get("ZDOTDIR") or env["HOME"]
+        env["ZDOTDIR"] = os.path.join(INTEGRATION_DIR, "zsh")
+    elif name == "bash":
+        # --init-file replaces the login files; our script sources them.
+        argv = [argv[0], "--init-file", os.path.join(INTEGRATION_DIR, "bash", "integration.bash")]
+    else:
+        return argv  # fish & co: no integration yet
+    env["TIC_SHELL_INTEGRATION"] = "1"
+    return argv
+
+
+def open_path(path, line=None, command=None):
+    path = os.path.expanduser(path)
+    if not os.path.exists(path):
+        raise RuntimeError("no such file: %s" % path)
+    if command:
+        argv = [a.replace("{path}", path).replace("{line}", str(line or 1)) for a in shlex.split(command)]
+    elif sys.platform == "darwin":
+        argv = ["open", path]
+    else:
+        argv = ["xdg-open", path]
+    subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True, env=build_env())
+    return path
+
+
 class Session:
-    def __init__(self, daemon, cols, rows, shell=None, cwd=None):
+    def __init__(self, daemon, cols, rows, shell=None, cwd=None, integration=True, profile=""):
         self.daemon = daemon
         self.id = uuid.uuid4().hex[:12]
         self.lock = threading.Lock()
         self.client = None
         self.title = ""
+        self.profile = profile or ""
         self.created = time.time()
         self.exit_info = None
         self.buffer = bytearray()
@@ -184,6 +223,8 @@ class Session:
         argv = [os.path.basename(shell)]
         if os.path.basename(shell) in ("zsh", "bash", "fish", "sh", "ksh", "tcsh"):
             argv.append("-l")  # login shell: ~/.zprofile, Homebrew PATH, ...
+        if integration:
+            argv = shell_integration(shell, env, argv)
 
         # Size the tty before the child exists so an early resize can never be
         # overwritten by the child's initial size.
@@ -279,7 +320,7 @@ class Session:
             self._resize(cols, rows)
             client.send({"type": "ready", "session": self.id, "pid": self.pid,
                          "shell": self.shell, "cwd": self.cwd, "title": self.title,
-                         "replay": bool(snapshot)})
+                         "profile": self.profile, "replay": bool(snapshot)})
             for i in range(0, len(snapshot), MAX_CHUNK):
                 chunk = snapshot[i:i + MAX_CHUNK]
                 client.send({"type": "data", "data": base64.b64encode(chunk).decode("ascii")})
@@ -340,8 +381,8 @@ class Session:
 
     def describe(self):
         return {"session": self.id, "pid": self.pid, "shell": self.shell,
-                "cwd": self.cwd, "title": self.title, "created": self.created,
-                "attached": self.client is not None}
+                "cwd": self.cwd, "title": self.title, "profile": self.profile,
+                "created": self.created, "attached": self.client is not None}
 
 
 class Client:
@@ -392,7 +433,8 @@ class Client:
                 raise RuntimeError("this connection already has a shell")
             session = self.daemon.create_session(
                 message.get("cols"), message.get("rows"),
-                message.get("shell") or None, message.get("cwd") or None)
+                message.get("shell") or None, message.get("cwd") or None,
+                message.get("integration", True), message.get("profile") or "")
             self.session = session
             session.attach(self, message.get("cols"), message.get("rows"), replay=False)
         elif kind == "attach":
@@ -418,6 +460,9 @@ class Client:
         elif kind == "title":
             if self.session:
                 self.session.title = str(message.get("title", ""))[:200]
+        elif kind == "open":
+            path = open_path(message.get("path", ""), message.get("line"), message.get("command"))
+            self.send({"type": "opened", "path": path})
         elif kind == "pause":
             if self.session:
                 self.session.resume.clear()
@@ -454,8 +499,8 @@ class Daemon:
         self.clients = set()
         self.idle_since = time.time()
 
-    def create_session(self, cols, rows, shell, cwd):
-        session = Session(self, cols, rows, shell, cwd)
+    def create_session(self, cols, rows, shell, cwd, integration=True, profile=""):
+        session = Session(self, cols, rows, shell, cwd, integration, profile)
         with self.lock:
             self.sessions[session.id] = session
         log("session %s spawned: %s (pid %d)" % (session.id, session.shell, session.pid))
