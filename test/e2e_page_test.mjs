@@ -249,6 +249,16 @@ try {
   await page.goto(`${base}/terminal.html`);
   await page.waitForSelector(".tab .status.connected", { timeout: 8000 });
   console.log("✓ shell spawned and reported ready");
+  const look = await page.evaluate(() => ({
+    page: document.documentElement.dataset.theme,
+    bg: window.terminalInChrome.active.term.options.theme.background,
+    magenta: window.terminalInChrome.active.term.options.theme.magenta,
+    tabbar: getComputedStyle(document.getElementById("tabbar")).backgroundColor,
+  }));
+  if (look.page !== "dracula" || look.bg !== "#282a36" || look.magenta !== "#ff79c6" || look.tabbar !== "rgb(25, 26, 33)") {
+    throw new Error("default theme is not Dracula: " + JSON.stringify(look));
+  }
+  console.log("✓ default theme is Dracula (terminal palette and page chrome)");
 
   await page.keyboard.type("echo E2E_$((40+2)); stty size; echo $TERM");
   await page.keyboard.press("Enter");

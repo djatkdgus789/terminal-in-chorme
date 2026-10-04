@@ -37,7 +37,7 @@ function profileRow(p, isDefault) {
       <label>Shell <input type="text" class="p-shell" placeholder="inherit" spellcheck="false"></label>
       <label>Start directory <input type="text" class="p-cwd" placeholder="inherit" spellcheck="false"></label>
       <label>Theme <select class="p-theme">
-        <option value="">inherit</option><option value="dark">Dark</option>
+        <option value="">inherit</option><option value="dracula">Dracula</option><option value="dark">Dark</option>
         <option value="light">Light</option><option value="system">Follow system</option></select></label>
       <label>Font size <input type="number" class="p-fontSize" min="8" max="40" placeholder="inherit"></label>
       <label>Font family <input type="text" class="p-fontFamily" placeholder="inherit" spellcheck="false"></label>

@@ -8,7 +8,7 @@ const DEFAULT_SETTINGS = {
   cwd: "",              // empty = home directory
   fontSize: 14,
   fontFamily: "Menlo, Monaco, 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace",
-  theme: "dark",        // dark | light | system
+  theme: "dracula",     // dracula | dark | light | system
   scrollback: 5000,
   cursorStyle: "block", // block | underline | bar
   cursorBlink: true,

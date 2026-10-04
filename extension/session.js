@@ -3,6 +3,17 @@
 "use strict";
 
 const THEMES = {
+  // Dracula, from the official spec (https://draculatheme.com/contribute).
+  dracula: {
+    background: "#282a36", foreground: "#f8f8f2", cursor: "#f8f8f2",
+    cursorAccent: "#282a36", selectionBackground: "#44475a",
+    selectionInactiveBackground: "rgba(68, 71, 90, 0.6)",
+    black: "#21222c", red: "#ff5555", green: "#50fa7b", yellow: "#f1fa8c",
+    blue: "#bd93f9", magenta: "#ff79c6", cyan: "#8be9fd", white: "#f8f8f2",
+    brightBlack: "#6272a4", brightRed: "#ff6e6e", brightGreen: "#69ff94",
+    brightYellow: "#ffffa5", brightBlue: "#d6acff", brightMagenta: "#ff92df",
+    brightCyan: "#a4ffff", brightWhite: "#ffffff",
+  },
   dark: {
     background: "#1b1d23", foreground: "#d7dae0", cursor: "#d7dae0",
     cursorAccent: "#1b1d23", selectionBackground: "rgba(95, 179, 245, 0.35)",
@@ -32,7 +43,7 @@ function resolveTheme(name) {
   if (name === "system") {
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
-  return name === "light" ? "light" : "dark";
+  return THEMES[name] ? name : "dracula";
 }
 
 let nextSessionId = 1;
@@ -401,7 +412,10 @@ class Session {
       incremental,
       regex: this.findRegex.getAttribute("aria-pressed") === "true",
       caseSensitive: this.findCase.getAttribute("aria-pressed") === "true",
-      decorations: {
+      decorations: resolveTheme(this.cfg.theme) === "dracula" ? {
+        matchBackground: "#6272a4", matchOverviewRuler: "#f1fa8c",
+        activeMatchBackground: "#ffb86c", activeMatchColorOverviewRuler: "#ffb86c",
+      } : {
         matchBackground: "#6b5a1e", matchOverviewRuler: "#e5c07b",
         activeMatchBackground: "#c9a227", activeMatchColorOverviewRuler: "#ffffff",
       },

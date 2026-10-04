@@ -120,6 +120,9 @@ try {
 
   // 3. Typing runs commands in a real login shell.
   await page.click(".workspace.active .pane.focused .term");
+  // a colourful line to show the Dracula palette in the screenshot
+  await page.keyboard.type("for c in 31 32 33 34 35 36 91 92 93 94 95 96; do printf '\\033[%sm\u25a0\u25a0 ' $c; done; printf '\\033[0m\\n'; ls -la --color=always /etc | head -5");
+  await page.keyboard.press("Enter");
   await page.keyboard.type("echo REAL_$((6*7)) $TERM_PROGRAM");
   await page.keyboard.press("Enter");
   await waitText(page, 0, "REAL_42 terminal-in-chrome");
