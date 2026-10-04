@@ -5,10 +5,79 @@ const isPanel = document.body.classList.contains("panel");
 const tabsEl = document.getElementById("tabs");
 const panesEl = document.getElementById("panes");
 
+const BROADCAST_MODES = ["off", "tab", "all"];
+const BROADCAST_LABELS = { off: "", tab: "Tab", all: "All" };
+
 const App = {
   settings: { ...DEFAULT_SETTINGS },
   tabs: [],
   activeTab: null,
+  // Broadcast input (iTerm2 "Broadcast Input"): "off", "tab" = every pane in
+  // the current tab, "all" = every pane in every tab. Never persisted, so a
+  // reopened page always starts with broadcasting off.
+  broadcastMode: "off",
+  broadcastExcluded: new Set(),  // Session objects opted out with their badge
+
+  // -- broadcast input -------------------------------------------------------------------
+  setBroadcastMode(mode) {
+    this.broadcastMode = BROADCAST_MODES.includes(mode) ? mode : "off";
+    if (this.broadcastMode === "off") this.broadcastExcluded.clear();
+    const btn = document.getElementById("broadcast");
+    btn.classList.toggle("on", this.broadcastMode !== "off");
+    btn.querySelector(".label").textContent = BROADCAST_LABELS[this.broadcastMode];
+    btn.title = {
+      off: "Broadcast input: off (Ctrl+Shift+B)",
+      tab: "Broadcasting to every pane in this tab (Ctrl+Shift+B: all tabs)",
+      all: "Broadcasting to every pane in every tab (Ctrl+Shift+B: off)",
+    }[this.broadcastMode];
+    this.refreshBroadcastUi();
+  },
+
+  cycleBroadcast() {
+    const i = BROADCAST_MODES.indexOf(this.broadcastMode);
+    this.setBroadcastMode(BROADCAST_MODES[(i + 1) % BROADCAST_MODES.length]);
+  },
+
+  // Sessions that receive input typed into `source` (source included).
+  broadcastTargets(source) {
+    if (this.broadcastMode === "off" || !source.tab) return [source];
+    const pool = this.broadcastMode === "tab" ? source.tab.sessions() : this.allSessions();
+    if (this.broadcastExcluded.has(source)) return [source];
+    return pool.filter((s) => s === source || !this.broadcastExcluded.has(s));
+  },
+
+  // Called by a Session for keyboard / paste / IME input it already sent to
+  // its own shell; forwards the same bytes to the other targets.
+  broadcastInput(source, data) {
+    if (this.broadcastMode === "off") return;
+    const payload = { type: "input", data: stringToBase64(data) };
+    for (const s of this.broadcastTargets(source)) {
+      if (s !== source) s.send(payload);
+    }
+  },
+
+  toggleBroadcastExclusion(session) {
+    if (this.broadcastExcluded.has(session)) this.broadcastExcluded.delete(session);
+    else this.broadcastExcluded.add(session);
+    this.refreshBroadcastUi();
+    if (session.tab && session.tab.focused) session.tab.focused.term.focus();
+  },
+
+  refreshBroadcastUi() {
+    const mode = this.broadcastMode;
+    const scope = mode === "all" ? this.allSessions()
+      : mode === "tab" && this.activeTab ? this.activeTab.sessions() : [];
+    const members = scope.filter((s) => !this.broadcastExcluded.has(s));
+    document.body.classList.toggle("broadcasting", mode !== "off");
+    for (const s of this.allSessions()) {
+      s.pane.classList.toggle("broadcast", members.length > 1 && members.includes(s));
+      s.pane.classList.toggle("broadcast-excluded", scope.includes(s) && this.broadcastExcluded.has(s));
+    }
+    for (const t of this.tabs) {
+      t.el.classList.toggle("broadcast", this.broadcastMode === "all" ||
+        (this.broadcastMode === "tab" && t === this.activeTab));
+    }
+  },
 
   // -- sessions & tabs ---------------------------------------------------------------
   allSessions() {
@@ -74,6 +143,7 @@ const App = {
     for (const t of this.tabs) t.setActive(t === tab);
     document.title = tab.title;
     if (tab.focused) tab.focus(tab.focused);
+    this.refreshBroadcastUi();
   },
 
   cycleTab(delta) {
@@ -86,6 +156,7 @@ const App = {
     if (!session.tab) return;
     if (this.activeTab !== session.tab) this.activateTab(session.tab);
     if (session.tab.focused !== session) session.tab.focus(session);
+    this.refreshBroadcastUi();
   },
 
   isFocused(session) {
@@ -131,6 +202,10 @@ const App = {
     }
     if (mod && e.shiftKey && key === "t") { this.newTab(); return stop(); }
     if (mod && e.shiftKey && key === "w") { this.closeSession(session); return stop(); }
+    if (e.ctrlKey && e.shiftKey && !e.metaKey && e.code === "KeyB") {
+      if (e.altKey) this.toggleBroadcastExclusion(session); else this.cycleBroadcast();
+      return stop();
+    }
     if (ctrlShift && key === "d") { this.splitSession(session, "row"); return stop(); }
     if (ctrlShift && key === "e") { this.splitSession(session, "col"); return stop(); }
     if (ctrlShift && (e.key === "[" || e.key === "{" || e.key === "]" || e.key === "}")) {
@@ -146,6 +221,9 @@ const App = {
 
   // -- persistence of the tab/split layout across page loads ---------------------------
   layoutChanged() {
+    const alive = new Set(this.allSessions());
+    for (const s of [...this.broadcastExcluded]) if (!alive.has(s)) this.broadcastExcluded.delete(s);
+    this.refreshBroadcastUi();
     clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(() => this.saveLayout(), 150);
   },
@@ -259,6 +337,11 @@ document.getElementById("split-down").addEventListener("click", () => {
   if (s) App.splitSession(s, "col");
 });
 document.getElementById("open-options").addEventListener("click", () => chrome.runtime.openOptionsPage());
+document.getElementById("broadcast").addEventListener("click", () => {
+  App.cycleBroadcast();
+  const s = App.activeTab && App.activeTab.focused;
+  if (s) s.term.focus();
+});
 
 let resizeTimer = null;
 const scheduleFit = () => {

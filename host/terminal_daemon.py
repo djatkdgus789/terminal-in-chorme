@@ -58,7 +58,8 @@ VERSION = 3
 HERE = os.path.dirname(os.path.abspath(__file__))
 INTEGRATION_DIR = os.path.join(HERE, "shell-integration")
 MAX_CHUNK = 64 * 1024          # keep host->Chrome frames well under 1 MB
-SCROLLBACK_BYTES = 512 * 1024  # raw output replayed on re-attach
+SCROLLBACK_BYTES = 2 * 1024 * 1024  # raw output replayed on re-attach (images are big)
+BIN_DIR = os.path.join(HERE, "bin")    # imgcat & co, appended to the shell's PATH
 IDLE_EXIT_SECONDS = 15
 
 
@@ -140,7 +141,10 @@ def build_env():
                   "/usr/sbin", "/sbin"):
         if extra not in parts:
             parts.append(extra)
+    if BIN_DIR not in parts:
+        parts.append(BIN_DIR)
     env["PATH"] = ":".join(p for p in parts if p)
+    env["TIC_BIN_DIR"] = BIN_DIR
     env.pop("TIC_RUNTIME_DIR", None)
     return env
 
@@ -159,6 +163,67 @@ def termios_TIOCSWINSZ():
 def termios_TIOCSCTTY():
     import termios
     return termios.TIOCSCTTY
+
+
+# --- replay buffer -----------------------------------------------------------
+
+# Escape sequences that carry a string payload: OSC, DCS (sixel), APC, PM, SOS.
+_STRING_STARTS = (b"\x1b]", b"\x1bP", b"\x1b_", b"\x1b^", b"\x1bX")
+
+
+def _terminator_end(buf, pos):
+    """Index just past the first BEL or ESC \\ at or after pos, or -1."""
+    bel = buf.find(b"\x07", pos)
+    st = buf.find(b"\x1b\\", pos)
+    ends = [i + 1 for i in (bel,) if i >= 0] + [i + 2 for i in (st,) if i >= 0]
+    return min(ends) if ends else -1
+
+
+class ReplayBuffer:
+    """Recent raw pty output, replayed to a terminal that re-attaches.
+
+    Trimming never cuts inside an OSC/DCS string. Otherwise the tail of a
+    large inline image (OSC 1337) or sixel (DCS) would be replayed as a wall
+    of base64 text. A string longer than the whole buffer is dropped
+    entirely, including the part that has not arrived yet.
+    """
+
+    def __init__(self, limit):
+        self.limit = limit
+        self.data = bytearray()
+        self.skipping = False  # discarding the rest of an oversized string
+
+    def append(self, chunk):
+        if self.skipping:
+            end = _terminator_end(chunk, 0)
+            if end < 0:
+                return
+            chunk = chunk[end:]
+            self.skipping = False
+        self.data += chunk
+        if len(self.data) > self.limit * 3 // 2:
+            self._trim()
+
+    def _trim(self):
+        data = self.data
+        cut = len(data) - self.limit
+        start = max(data.rfind(prefix, 0, cut) for prefix in _STRING_STARTS)
+        if start >= 0 and _terminator_end(data[:cut], start + 2) < 0:
+            # cut would land inside a string: move past its terminator
+            end = _terminator_end(data, cut)
+            if end < 0:
+                self.data = bytearray()
+                self.skipping = True
+                return
+            cut = end
+        # Prefer to start on a fresh line when that skips no escape sequence.
+        nl = data.find(b"\n", cut, cut + 4096)
+        if nl >= 0 and b"\x1b" not in data[cut:nl]:
+            cut = nl + 1
+        del data[:cut]
+
+    def snapshot(self):
+        return bytes(self.data)
 
 
 # --- sessions ---------------------------------------------------------------
@@ -204,7 +269,7 @@ class Session:
         self.profile = profile or ""
         self.created = time.time()
         self.exit_info = None
-        self.buffer = bytearray()
+        self.buffer = ReplayBuffer(SCROLLBACK_BYTES)
         self.resume = threading.Event()
         self.resume.set()
 
@@ -276,9 +341,7 @@ class Session:
                 break
             frame = pack({"type": "data", "data": base64.b64encode(data).decode("ascii")})
             with self.lock:
-                self.buffer += data
-                if len(self.buffer) > SCROLLBACK_BYTES * 3 // 2:
-                    del self.buffer[:len(self.buffer) - SCROLLBACK_BYTES]
+                self.buffer.append(data)
                 client = self.client
             if client is not None:
                 client.send_raw(frame)
@@ -316,7 +379,7 @@ class Session:
             if self.client is not None and self.client is not client:
                 raise RuntimeError("session is attached to another terminal")
             self.client = client
-            snapshot = bytes(self.buffer) if replay else b""
+            snapshot = self.buffer.snapshot() if replay else b""
             self._resize(cols, rows)
             client.send({"type": "ready", "session": self.id, "pid": self.pid,
                          "shell": self.shell, "cwd": self.cwd, "title": self.title,

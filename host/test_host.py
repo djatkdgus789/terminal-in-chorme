@@ -87,7 +87,43 @@ class Port:
         return self.proc.returncode
 
 
+def test_replay_buffer():
+    sys.path.insert(0, HERE)
+    from terminal_daemon import ReplayBuffer
+
+    # plain text: keeps the most recent bytes, starting on a fresh line
+    rb = ReplayBuffer(1000)
+    for i in range(300):
+        rb.append(b"line %03d\n" % i)
+    snap = rb.snapshot()
+    assert len(snap) <= 1500 and snap.endswith(b"line 299\n") and snap.startswith(b"line "), snap[:40]
+
+    # an image straddling the cut is dropped whole, never replayed as base64 text
+    rb = ReplayBuffer(1000)
+    rb.append(b"before\n" + b"\x1b]1337;File=inline=1:" + b"A" * 900 + b"\x07" + b"after-image\n")
+    rb.append(b"x" * 700 + b"\n")
+    snap = rb.snapshot()
+    assert b"AAAA" not in snap and b"\x1b]1337" not in snap and snap.endswith(b"x\n"), snap[:60]
+
+    # a sixel (DCS ... ESC \\) that ends before the cut is kept intact
+    rb = ReplayBuffer(1000)
+    sixel = b"\x1bPq#0;2;100;0;0#0!40~\x1b\\"
+    rb.append(b"y" * 900 + b"\n" + sixel + b"\nend\n")
+    rb.append(b"z" * 400 + b"\n")
+    assert sixel in rb.snapshot()
+
+    # a string longer than the whole buffer is skipped, including what is still to come
+    rb = ReplayBuffer(1000)
+    rb.append(b"\x1b]1337;File=inline=1:" + b"B" * 2000)
+    assert rb.snapshot() == b"" and rb.skipping
+    rb.append(b"B" * 500)
+    rb.append(b"BBB\x07tail\n")
+    assert rb.snapshot() == b"tail\n" and not rb.skipping, rb.snapshot()
+    print("replay buffer trimming OK")
+
+
 def main():
+    test_replay_buffer()
     runtime = tempfile.mkdtemp(prefix="tic-test-")
     env = dict(os.environ, TIC_RUNTIME_DIR=runtime)
     try:
@@ -217,12 +253,38 @@ def run(env):
     assert msg["type"] == "error" and "no such file" in msg["message"], msg
     e.send({"type": "open", "path": HOST, "line": 3, "command": "true {path} {line}"})
     assert e.expect("opened")["path"] == HOST
+    e.type('command -v imgcat; echo PATH_""OK\n')
+    out = e.read_until("PATH_OK")
+    assert "/host/bin/imgcat" in out, "imgcat not on PATH: %r" % out
     e.type("exit\n")
     e.expect("exit")
     e.close()
-    print("shell integration + open OK")
+    print("shell integration + open + imgcat on PATH OK")
 
-    # 12. with nothing left to do the daemon exits on its own
+    # 12. an image bigger than the replay buffer never comes back as base64 text
+    f = Port(env)
+    f.send({"type": "spawn", "cols": 80, "rows": 24, "shell": "/bin/sh"})
+    sid3 = f.expect("ready")["session"]
+    big = os.path.join(env["TIC_RUNTIME_DIR"], "big.bin")
+    with open(big, "wb") as fh:
+        fh.write(os.urandom(3 * 1024 * 1024))   # base64 -> ~4 MB > 2 MB buffer
+    f.type("%s %s %s >/dev/null; echo BIG_""SENT\n" % (sys.executable, os.path.join(HERE, "bin", "imgcat"), big))
+    f.read_until("BIG_SENT")
+    f.type("%s %s %s; echo AFTER_""BIG\n" % (sys.executable, os.path.join(HERE, "bin", "imgcat"), big))
+    f.read_until("AFTER_BIG", timeout=30)
+    f.close()
+    g = Port(env)
+    g.send({"type": "attach", "session": sid3, "cols": 80, "rows": 24})
+    assert g.expect("ready")["replay"] is True
+    replay = g.read_until("AFTER_BIG", timeout=10)
+    printable_runs = max((len(r) for r in replay.replace("\r", "\n").split("\n")), default=0)
+    assert printable_runs < 1000, "base64 leaked into the replay (line of %d chars)" % printable_runs
+    g.type("exit\n")
+    g.expect("exit")
+    g.close()
+    print("oversized image is not replayed as text OK")
+
+    # 13. with nothing left to do the daemon exits on its own
     sock = os.path.join(env["TIC_RUNTIME_DIR"], "daemon.sock")
     deadline = time.time() + 30
     while os.path.exists(sock) and time.time() < deadline:

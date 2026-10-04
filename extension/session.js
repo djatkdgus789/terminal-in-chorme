@@ -105,6 +105,12 @@ class Session {
       else if (e.key === "Enter") { this.confirmPaste(false); e.preventDefault(); }
     });
 
+    q(".bc-badge").addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      App.toggleBroadcastExclusion(this);
+    });
+
     // Clicking anywhere in the pane focuses it (for split layouts).
     this.pane.addEventListener("mousedown", () => App.focusSession(this), true);
   }
@@ -140,11 +146,26 @@ class Session {
     }));
     this.term.open(this.termEl);
     this.loadWebgl();
+    this.loadImages();
     this.installShellIntegration();
     this.installFileLinks();
     this.installPasteGuard();
 
-    this.term.onData((data) => this.send({ type: "input", data: stringToBase64(data) }));
+    // Tell keyboard/paste/IME input apart from replies xterm generates itself
+    // (cursor position, device attributes, focus reports...). Only the former
+    // may be broadcast to other panes; a reply belongs to the shell that
+    // asked. xterm fires the internal onUserInput event synchronously right
+    // before onData for user input (CoreService.triggerDataEvent).
+    this.userInputPending = false;
+    const core = this.term._core && this.term._core.coreService;
+    this.canTellUserInput = !!(core && core.onUserInput);
+    if (this.canTellUserInput) core.onUserInput(() => { this.userInputPending = true; });
+    this.term.onData((data) => {
+      const fromUser = this.userInputPending;
+      this.userInputPending = false;
+      this.send({ type: "input", data: stringToBase64(data) });
+      if (fromUser && !Session.isMouseReport(data)) App.broadcastInput(this, data);
+    });
     this.term.onBinary((data) => {
       const bytes = new Uint8Array(data.length);
       for (let i = 0; i < data.length; i++) bytes[i] = data.charCodeAt(i) & 0xff;
@@ -174,6 +195,30 @@ class Session {
     } catch (err) {
       console.warn("WebGL renderer unavailable, using DOM renderer", err);
     }
+  }
+
+  // Inline images: iTerm2 protocol (OSC 1337 File=, used by imgcat) and sixel.
+  loadImages() {
+    if (!this.cfg.imageSupport || !window.ImageAddon) return;
+    try {
+      this.images = new ImageAddon.ImageAddon({
+        sixelSupport: true,
+        iipSupport: true,
+        enableSizeReports: true,   // answer CSI 14/16 t so tools can size images
+        showPlaceholder: true,
+        storageLimit: 128,         // MB of decoded pixels kept per pane
+        pixelLimit: 16777216,      // refuse single images above 16 megapixels
+        iipSizeLimit: 20000000,    // ~20 MB of encoded image data
+      });
+      this.term.loadAddon(this.images);
+    } catch (err) {
+      console.warn("image support unavailable", err);
+      this.images = null;
+    }
+  }
+
+  static isMouseReport(data) {
+    return /^\x1b\[(M|<\d)/.test(data);
   }
 
   // -- shell integration (OSC 133 prompt marks, OSC 7 cwd) ------------------------
@@ -212,6 +257,9 @@ class Session {
         case "D": { // command finished
           const c = this.currentCommand;
           if (!c) break;
+          // No "C" mark means nothing ran (Ctrl+C at the prompt, empty Enter);
+          // the status the shell reports then is stale, so do not mark it.
+          if (!c.outputMarker) break;
           c.exitCode = arg === undefined || arg === "" ? null : parseInt(arg, 10);
           this.decorateCommand(c);
           break;

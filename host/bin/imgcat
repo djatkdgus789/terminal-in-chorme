@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""imgcat - show images inline in Terminal in Chrome.
+
+Emits the iTerm2 inline image protocol (OSC 1337 File=...), which the
+terminal renders with xterm.js's image addon. Works with PNG, JPEG and GIF.
+
+usage: imgcat [-p] [-W WIDTH] [-H HEIGHT] [-r] [FILE ...]
+       some-command | imgcat
+
+  -p, --print        print the file name before each image
+  -W, --width W      width: N cells, Npx, N% or auto (default auto)
+  -H, --height H     height: N cells, Npx, N% or auto (default auto)
+  -r, --no-preserve  stretch instead of keeping the aspect ratio
+
+Inside tmux the sequence is wrapped for passthrough
+(needs `set -g allow-passthrough on`).
+"""
+
+import argparse
+import base64
+import os
+import sys
+
+
+def sequence(data, name, width, height, preserve):
+    args = ["inline=1", "size=%d" % len(data)]
+    if name:
+        args.append("name=" + base64.b64encode(name.encode("utf-8")).decode("ascii"))
+    if width:
+        args.append("width=" + width)
+    if height:
+        args.append("height=" + height)
+    if not preserve:
+        args.append("preserveAspectRatio=0")
+    seq = "\x1b]1337;File=%s:%s\x07" % (";".join(args), base64.b64encode(data).decode("ascii"))
+    if os.environ.get("TMUX"):
+        seq = "\x1bPtmux;" + seq.replace("\x1b", "\x1b\x1b") + "\x1b\\"
+    return seq
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="imgcat", add_help=False)
+    parser.add_argument("-p", "--print", dest="print_name", action="store_true")
+    parser.add_argument("-W", "--width")
+    parser.add_argument("-H", "--height")
+    parser.add_argument("-r", "--no-preserve", dest="preserve", action="store_false")
+    parser.add_argument("-h", "--help", action="store_true")
+    parser.add_argument("files", nargs="*")
+    opts = parser.parse_args()
+    if opts.help:
+        print(__doc__.strip())
+        return 0
+
+    out = sys.stdout
+    status = 0
+    if not opts.files:
+        if sys.stdin.isatty():
+            print(__doc__.strip(), file=sys.stderr)
+            return 2
+        data = sys.stdin.buffer.read()
+        out.write(sequence(data, "", opts.width, opts.height, opts.preserve) + "\n")
+        return 0
+    for path in opts.files:
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except OSError as exc:
+            print("imgcat: %s: %s" % (path, exc.strerror), file=sys.stderr)
+            status = 1
+            continue
+        if opts.print_name:
+            out.write(path + "\n")
+        out.write(sequence(data, os.path.basename(path), opts.width, opts.height, opts.preserve) + "\n")
+        out.flush()
+    return status
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except BrokenPipeError:
+        sys.exit(1)

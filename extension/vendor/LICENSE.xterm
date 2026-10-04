@@ -19,3 +19,8 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+The add-ons in this directory (addon-fit, addon-web-links, addon-search,
+addon-webgl, addon-image) are part of the xterm.js project and are released
+under the same MIT license. addon-image also contains code copyright (c)
+2019-2021 Joerg Breitbart, MIT licensed.

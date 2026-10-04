@@ -27,6 +27,8 @@ Python 표준 라이브러리만 사용하므로 별도 패키지 설치가 필�
 - 탭 여러 개와 **분할 창**(좌우/상하, 드래그로 크기 조절, 방향키로 포커스 이동), 사이드 패널 모드
 - **프로파일**: 셸·시작 디렉터리·테마·폰트 세트를 여러 개 저장하고 탭마다 다르게 열기
 - **셸 통합**(zsh, bash): 실패한 명령에 빨간 마크, ⌘↑/⌘↓로 프롬프트 사이 이동, 새 분할/탭이 현재 디렉터리에서 시작. dotfile을 건드리지 않음
+- **이미지 표시**: `imgcat`(iTerm2 인라인 이미지 프로토콜)과 sixel(`img2sixel`, `chafa -f sixel` 등)을 터미널 안에 그대로 표시. 재연결 시에도 복원
+- **브로드캐스트 입력**: 한 번 친 키 입력을 현재 탭의 모든 창, 또는 모든 탭의 모든 창에 동시에 전송. 창별로 제외 가능
 - 여러 줄 붙여넣기 확인 창, 파일 경로 ⌘클릭으로 열기(`code -g {path}:{line}` 같은 명령 지정 가능)
 - WebGL 렌더러(사용 불가 시 DOM 렌더러로 자동 대체), 대량 출력 시 흐름 제어(pause/resume)
 - ⌘F 검색(정규식·대소문자 옵션), ⌘C/⌘V 복사·붙여넣기, ⌘-클릭으로 링크 열기, 폰트 크기 단축키
@@ -80,6 +82,8 @@ ID가 다르게 표시된다면(예: manifest의 `key`를 바꾼 경우):
 | `Ctrl+Shift+←↑→↓` | 그 방향의 분할 창으로 포커스 이동 |
 | `Ctrl+Shift+[` / `Ctrl+Shift+]` | 이전 / 다음 터미널 탭 |
 | `⌘↑` / `⌘↓` | 이전 / 다음 프롬프트로 스크롤 (셸 통합) |
+| `Ctrl+Shift+B` | 브로드캐스트 입력: 끔 → 현재 탭 → 모든 탭 → 끔 (툴바의 안테나 버튼과 같음) |
+| `Ctrl+Alt+Shift+B` | 브로드캐스트 중 현재 창을 제외 / 다시 포함 (창 오른쪽 아래 배지 클릭과 같음) |
 | `⌘C` / `⌘V` | 선택 영역 복사 / 붙여넣기 (`Ctrl+C`는 평소처럼 SIGINT) |
 | `⌘K` | 화면 지우기 |
 | `⌘F` | 스크롤백 검색 (Enter 다음, Shift+Enter 이전, Esc 닫기) |
@@ -92,6 +96,31 @@ ID가 다르게 표시된다면(예: manifest의 `key`를 바꾼 경우):
 ### 프로파일
 
 설정 페이지의 **Profiles**에서 이름, 셸, 시작 디렉터리, 테마, 폰트, 커서를 가진 프로파일을 여러 개 만들 수 있습니다. 비워 둔 항목은 전역 설정을 따릅니다. 기본 프로파일로 지정하면 `+` 버튼과 `Ctrl+Shift+T`가 그 프로파일로 열리고, 나머지는 `▾` 메뉴(또는 `+` 우클릭)에서 고릅니다. 분할 창은 원래 창의 프로파일을 물려받습니다.
+
+### 이미지 표시
+
+xterm.js 이미지 애드온으로 두 가지 프로토콜을 지원합니다.
+
+- **iTerm2 인라인 이미지** (`ESC ] 1337 ; File=...`): 함께 들어 있는 `imgcat`이 셸의 PATH에 자동으로 추가됩니다. PNG, JPEG, GIF를 지원합니다.
+
+  ```bash
+  imgcat photo.png               # 원본 크기 (화면보다 크면 줄임)
+  imgcat -W 40 photo.png         # 40칸 너비 (-W/-H는 칸 수, 300px, 50%, auto)
+  curl -s https://…/a.png | imgcat
+  ```
+
+- **sixel**: `img2sixel`(libsixel), `chafa -f sixel`, `timg -p sixel` 등. 터미널이 장치 속성 응답(DA1)에 sixel 지원을 알리므로 자동 감지하는 도구도 동작합니다.
+
+이미지 출력도 데몬의 재생 버퍼(최대 2 MB)에 들어가므로 탭을 닫았다 열면 다시 보입니다. 버퍼를 자를 때는 이미지 시퀀스 중간을 자르지 않아서, 버퍼보다 큰 이미지는 통째로 빠지고 base64가 글자로 쏟아지지 않습니다. 설정의 "Inline images"로 끌 수 있습니다. sixel 디코더가 WebAssembly라서 manifest의 CSP에 `wasm-unsafe-eval`이 들어 있습니다.
+
+### 브로드캐스트 입력
+
+iTerm2의 Broadcast Input과 같은 기능으로, 여러 서버에 같은 명령을 넣을 때 씁니다.
+
+- 툴바의 안테나 버튼 또는 `Ctrl+Shift+B`로 **끔 → 현재 탭(Tab) → 모든 탭(All)** 순으로 바뀝니다. 켜져 있으면 버튼이 주황색이 되고, 입력을 받는 창마다 주황 테두리와 `BROADCAST` 배지가 붙습니다.
+- 배지를 클릭하거나 `Ctrl+Alt+Shift+B`로 특정 창만 제외할 수 있습니다.
+- 키보드, 붙여넣기, 한글 같은 IME 입력이 전달됩니다. 반면 터미널이 프로그램 질의에 자동으로 답하는 응답(커서 위치, 장치 속성 등)과 마우스 입력은 해당 창에만 갑니다. 이 구분이 없으면 한 창의 응답이 다른 셸에 쓰레기 입력으로 들어갑니다.
+- 안전을 위해 브로드캐스트 상태는 저장하지 않습니다. 페이지를 다시 열면 항상 꺼진 상태입니다.
 
 ### 셸 통합
 
@@ -127,11 +156,12 @@ extension/            Chrome 확장 (Manifest V3)
   panel.html          사이드 패널용 진입점 (같은 스크립트)
   options.html/js     설정 페이지 + 호스트 연결 테스트
   shared.js           설정 기본값, base64 유틸, 오류 메시지
-  vendor/             xterm.js 5.5.0, fit / web-links / search / webgl 애드온 (MIT)
+  vendor/             xterm.js 5.5.0, fit / web-links / search / webgl / image 애드온 (MIT)
 host/
   terminal_host.py    네이티브 메시징 호스트 (Chrome ↔ 데몬 브리지, 데몬 자동 시작)
   terminal_daemon.py  세션 데몬 (pty 생성, 셸 소유, 재연결/출력 재생, 흐름 제어, 파일 열기)
   shell-integration/  zsh, bash 셸 통합 스크립트
+  bin/imgcat          iTerm2 인라인 이미지 출력 도구 (셸 PATH에 자동 추가)
   test_host.py        호스트+데몬 프로토콜 테스트
 install.sh            macOS 호스트 등록 스크립트
 uninstall.sh
@@ -154,7 +184,10 @@ pty 출력은 바이너리이므로 base64로 감싸며, 호스트 → Chrome �
 ```bash
 python3 host/test_host.py          # 호스트+데몬: spawn/echo/resize/유니코드/Ctrl-C/detach·attach 재생/흐름 제어/kill/exit/idle 종료
 node test/e2e_page_test.mjs        # playwright 필요 (npm i playwright): 실제 페이지 + 실제 호스트/데몬, 새로고침 후 재연결까지
+node test/real_extension_test.mjs  # Linux: 압축 해제된 확장을 Chromium에 실제로 로드하고 네이티브 호스트를 등록해 사용자처럼 조작
 ```
+
+`real_extension_test.mjs`는 아무것도 흉내 내지 않습니다. 확장 ID가 manifest 키대로 나오는지, 설치 직후 터미널 탭이 열리는지, 실제 `connectNative`로 셸이 붙는지, CSP 아래에서 이미지가 그려지는지, 분할과 브로드캐스트, 탭을 닫았다 열었을 때 같은 셸(PID)로 돌아오는지, 설정 페이지의 Test connection과 사이드 패널 페이지까지 확인합니다.
 
 두 테스트 모두 `TIC_RUNTIME_DIR` 환경 변수로 격리된 임시 디렉터리에 데몬을 띄우므로 실제 사용 중인 세션에 영향을 주지 않습니다.
 

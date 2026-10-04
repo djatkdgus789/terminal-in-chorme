@@ -84,6 +84,10 @@
         </label>
         <label class="check"><input name="inheritCwd" type="checkbox"> New splits and tabs start in the current pane's directory</label>
         <label class="check"><input name="pasteGuard" type="checkbox"> Ask before pasting more than one line</label>
+        <label class="check"><input name="imageSupport" type="checkbox"> Inline images
+          <small>Shows images printed with <code>imgcat</code> (iTerm2 protocol) or as sixel
+            (<code>img2sixel</code>, <code>chafa -f sixel</code>). Applies to new panes.</small>
+        </label>
         <label>Open files with (⌘-click on a path)
           <input name="openCommand" type="text" placeholder="open {path}   e.g.  code -g {path}:{line}" spellcheck="false">
         </label>
@@ -104,6 +108,8 @@
           <tr><td>Ctrl+Shift+← ↑ → ↓</td><td>Focus the pane in that direction</td></tr>
           <tr><td>Ctrl+Shift+[ / ]</td><td>Previous / next terminal tab</td></tr>
           <tr><td>⌘↑ / ⌘↓</td><td>Previous / next prompt (shell integration)</td></tr>
+          <tr><td>Ctrl+Shift+B</td><td>Broadcast input: off → this tab → all tabs → off</td></tr>
+          <tr><td>Ctrl+Alt+Shift+B</td><td>Exclude / include the current pane while broadcasting</td></tr>
           <tr><td>⌘C / ⌘V</td><td>Copy selection / paste</td></tr>
           <tr><td>⌘K</td><td>Clear screen</td></tr>
           <tr><td>⌘F</td><td>Find in scrollback (Enter / Shift+Enter, Esc closes)</td></tr>

@@ -10,6 +10,12 @@ if [[ -f "$TIC_USER_ZDOTDIR/.zshrc" ]]; then
   unset TIC_ZDOTDIR
 fi
 
+# Keep our helper commands (imgcat) reachable even if the user's files
+# rebuilt PATH from scratch.
+if [[ -n "$TIC_BIN_DIR" && ":$PATH:" != *":$TIC_BIN_DIR:"* ]]; then
+  PATH="$PATH:$TIC_BIN_DIR"
+fi
+
 if [[ -n "$TIC_SHELL_INTEGRATION" && -o interactive ]]; then
   __tic_first_prompt=1
 

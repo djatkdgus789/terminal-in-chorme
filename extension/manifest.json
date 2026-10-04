@@ -1,11 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Terminal in Chrome",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A real macOS terminal (zsh/bash) inside a Chrome tab or side panel, powered by xterm.js and a native messaging host.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAq4Rg8p6ZFI2381K3uePfqU1fqDrJ+HbqoCAt1JfupSb7CsJbiIzkhSYKLRIaQuPxIHOtbQ6w+pEEGLLuqZUhnoi+0QwwKFtTI1jhrE528IknVIXqy362lO457YN+tvKNwESdfeZ7HdOF4yLz8rEFJqznwqfT1siCI87jIiSrmU3sFOQHapJPblsdBLe2JqUnLm9xDbXIt2McfzKeX0xFj2kpi4UxTXckvf1rommNlh/CGtb1lNDkqQUCvAA6pix9zYOOE4TAdmXkDCoj26m0sHgtP4OdVfLTddsfbMpPsDkJJlgX066IgQ1kRZUa7SvkAXy6KhACuo3YBx6qt32FGwIDAQAB",
   "minimum_chrome_version": "116",
-  "permissions": ["nativeMessaging", "storage", "sidePanel"],
+  "permissions": [
+    "nativeMessaging",
+    "storage",
+    "sidePanel"
+  ],
   "action": {
     "default_title": "Open terminal",
     "default_icon": {
@@ -30,12 +34,21 @@
   "options_page": "options.html",
   "commands": {
     "open-terminal-tab": {
-      "suggested_key": { "default": "Alt+Shift+T", "mac": "Alt+Shift+T" },
+      "suggested_key": {
+        "default": "Alt+Shift+T",
+        "mac": "Alt+Shift+T"
+      },
       "description": "Open a terminal in a new tab"
     },
     "open-terminal-panel": {
-      "suggested_key": { "default": "Alt+Shift+P", "mac": "Alt+Shift+P" },
+      "suggested_key": {
+        "default": "Alt+Shift+P",
+        "mac": "Alt+Shift+P"
+      },
       "description": "Open a terminal in the side panel"
     }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
   }
 }

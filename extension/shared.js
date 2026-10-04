@@ -18,6 +18,7 @@ const DEFAULT_SETTINGS = {
   persistSessions: true, // keep shells alive when the page closes; re-attach on reopen
   shellIntegration: true, // OSC 133 prompt marks + OSC 7 cwd (zsh, bash)
   pasteGuard: true,     // confirm multi-line pastes
+  imageSupport: true,   // inline images: iTerm2 protocol (imgcat) and sixel
   inheritCwd: true,     // new splits/tabs start in the current pane's directory
   openCommand: "",      // for Cmd-click on a file path, e.g. "code -g {path}:{line}"; empty = `open`
   profiles: [],         // [{id, name, shell, cwd, theme, fontSize, fontFamily, cursorStyle}]
